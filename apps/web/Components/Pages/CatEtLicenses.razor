@@ -76,23 +76,24 @@
 }
 
 <MudPaper Class="pa-2" Elevation="1">
-    <div class="d-flex align-center justify-space-between px-2 pt-2 pb-1">
+    <div class="d-flex align-center justify-space-between px-2 pt-2 pb-1 gap-4 flex-wrap">
         <MudText Typo="Typo.subtitle2">Selected: @_selectedLicenseIds.Count</MudText>
+        <MudTextField T="string" @bind-Value="_searchSerial" Immediate="true" Placeholder="Search Serial Number..." Variant="Variant.Outlined" Margin="Margin.Dense" Class="ml-auto" Style="min-width: 280px;" />
         <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_selectedLicenseIds.Count == 0)" OnClick="DeleteSelectedAsync">
             Delete Selected
         </MudButton>
     </div>
 
-    <MudTable Items="_licenses" Hover="true" Dense="true" Loading="_isLoading">
+    <MudTable Items="SortedFilteredLicenses" Hover="true" Dense="true" Loading="_isLoading">
         <HeaderContent>
             <MudTh><MudCheckBox T="bool?" TriState="true" Value="@SelectAllState" ValueChanged="ToggleSelectAll" /></MudTh>
-            <MudTh>Serial Number</MudTh>
-            <MudTh>Activation ID</MudTh>
-            <MudTh>Status</MudTh>
-            <MudTh>Computer</MudTh>
-            <MudTh>User</MudTh>
-            <MudTh>Activated</MudTh>
-            <MudTh>Reset</MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.SerialNumber)">Serial Number @SortGlyph(SortColumn.SerialNumber)</MudButton></MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.ActivationId)">Activation ID @SortGlyph(SortColumn.ActivationId)</MudButton></MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.Status)">Status @SortGlyph(SortColumn.Status)</MudButton></MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.Computer)">Computer @SortGlyph(SortColumn.Computer)</MudButton></MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.User)">User @SortGlyph(SortColumn.User)</MudButton></MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.ActivatedAt)">Activated @SortGlyph(SortColumn.ActivatedAt)</MudButton></MudTh>
+            <MudTh><MudButton Variant="Variant.Text" Size="Size.Small" OnClick="() => SetSort(SortColumn.ResetAt)">Reset @SortGlyph(SortColumn.ResetAt)</MudButton></MudTh>
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
@@ -143,14 +144,31 @@
     private string? _importFileName;
     private bool _isImporting;
     private HashSet<int> _selectedLicenseIds = [];
+    private string _searchSerial = string.Empty;
+    private SortColumn _sortColumn = SortColumn.SerialNumber;
+    private bool _sortDescending;
 
-    private bool? SelectAllState => _licenses.Count == 0
-        ? false
-        : _licenses.All(l => _selectedLicenseIds.Contains(l.Id))
-            ? true
-            : _selectedLicenseIds.Count > 0
-                ? null
-                : false;
+    private IEnumerable<CatEtLicenseDto> FilteredLicenses
+        => _licenses.Where(l => string.IsNullOrWhiteSpace(_searchSerial)
+            || l.SerialNumber.Contains(_searchSerial.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private IEnumerable<CatEtLicenseDto> SortedFilteredLicenses
+        => ApplySort(FilteredLicenses);
+
+    private bool? SelectAllState
+    {
+        get
+        {
+            var currentIds = SortedFilteredLicenses.Select(l => l.Id).ToList();
+            if (currentIds.Count == 0)
+            {
+                return false;
+            }
+
+            var selectedCount = currentIds.Count(id => _selectedLicenseIds.Contains(id));
+            return selectedCount == currentIds.Count ? true : selectedCount > 0 ? null : false;
+        }
+    }
 
     private string NewSerialNumberInput
     {
@@ -194,13 +212,53 @@
 
     private void ToggleSelectAll(bool? selectAll)
     {
+        var visibleIds = SortedFilteredLicenses.Select(l => l.Id).ToList();
+
         if (selectAll == true)
         {
-            _selectedLicenseIds = _licenses.Select(l => l.Id).ToHashSet();
+            foreach (var id in visibleIds)
+            {
+                _selectedLicenseIds.Add(id);
+            }
             return;
         }
 
-        _selectedLicenseIds.Clear();
+        foreach (var id in visibleIds)
+        {
+            _selectedLicenseIds.Remove(id);
+        }
+    }
+
+    private void SetSort(SortColumn column)
+    {
+        if (_sortColumn == column)
+        {
+            _sortDescending = !_sortDescending;
+            return;
+        }
+
+        _sortColumn = column;
+        _sortDescending = false;
+    }
+
+    private string SortGlyph(SortColumn column)
+        => _sortColumn == column ? (_sortDescending ? "↓" : "↑") : string.Empty;
+
+    private IEnumerable<CatEtLicenseDto> ApplySort(IEnumerable<CatEtLicenseDto> source)
+    {
+        var sorted = _sortColumn switch
+        {
+            SortColumn.SerialNumber => source.OrderBy(x => x.SerialNumber),
+            SortColumn.ActivationId => source.OrderBy(x => x.ActivationId),
+            SortColumn.Status => source.OrderBy(x => x.Status),
+            SortColumn.Computer => source.OrderBy(x => x.Hostname).ThenBy(x => x.AssetTag),
+            SortColumn.User => source.OrderBy(x => x.TrackedPersonName),
+            SortColumn.ActivatedAt => source.OrderBy(x => x.ActivatedAtUtc),
+            SortColumn.ResetAt => source.OrderBy(x => x.LastResetAtUtc),
+            _ => source.OrderBy(x => x.SerialNumber)
+        };
+
+        return _sortDescending ? sorted.Reverse() : sorted;
     }
 
     private void OnImportFileSelected(InputFileChangeEventArgs e)
@@ -557,4 +615,15 @@
 
     private static bool IsValidActivationId(string activationId)
         => Regex.IsMatch(activationId, "^[0-9a-f]{4}(-[0-9a-f]{4}){7}$");
+
+    private enum SortColumn
+    {
+        SerialNumber,
+        ActivationId,
+        Status,
+        Computer,
+        User,
+        ActivatedAt,
+        ResetAt
+    }
 }
