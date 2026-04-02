@@ -95,7 +95,16 @@
         <RowTemplate>
             <MudTd><MudCheckBox T="bool" Value="@_selectedLicenseIds.Contains(context.Id)" ValueChanged="@(checkedValue => ToggleSelected(context.Id, checkedValue))" /></MudTd>
             <MudTd>@context.SerialNumber</MudTd>
-            <MudTd>@context.ActivationId</MudTd>
+            <MudTd>
+                @if (context.Status == "Consumed" && !string.IsNullOrWhiteSpace(context.ActivationId))
+                {
+                    <span style="text-decoration: line-through; opacity: .75;">@context.ActivationId</span>
+                }
+                else
+                {
+                    @(string.IsNullOrWhiteSpace(context.ActivationId) ? "-" : context.ActivationId)
+                }
+            </MudTd>
             <MudTd><MudChip T="string" Color="@StatusColor(context.Status)" Variant="Variant.Outlined" Size="Size.Small">@context.Status</MudChip></MudTd>
             <MudTd>@FormatComputer(context)</MudTd>
             <MudTd>@(context.TrackedPersonName ?? "Unassigned")</MudTd>
@@ -103,8 +112,9 @@
             <MudTd>@(context.LastResetAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</MudTd>
             <MudTd>
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Disabled="@(context.Status != "Available")" OnClick="() => MarkActivatedAsync(context.Id)">Mark Activated</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Disabled="@(context.Status != "Available" || string.IsNullOrWhiteSpace(context.ActivationId))" OnClick="() => MarkActivatedAsync(context.Id)">Mark Activated</MudButton>
                 <MudButton Variant="Variant.Text" Color="Color.Success" Size="Size.Small" OnClick="() => ResetAsync(context.Id)">Reset</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Info" Size="Size.Small" OnClick="() => ShowEventLogAsync(context)">History</MudButton>
                 <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => DeleteLicenseAsync(context.Id)">Delete</MudButton>
             </MudTd>
         </RowTemplate>
@@ -317,7 +327,7 @@
     private void BeginEdit(CatEtLicenseDto row)
     {
         _editingLicenseId = row.Id;
-        _editActivationId = row.ActivationId;
+        _editActivationId = row.ActivationId ?? string.Empty;
         _editTrackedComputerId = row.TrackedComputerId;
     }
 
@@ -380,8 +390,7 @@
             return;
         }
 
-        var newActivationId = GenerateActivationId();
-        var (ok, err) = await Api.ResetActivationAsync(id, new ResetActivationRequest(newActivationId, "Manual reset from UI"));
+        var (ok, err) = await Api.ResetActivationAsync(id, new ResetActivationRequest(null, "Manual reset from UI"));
         if (!ok)
         {
             Snackbar.Add(err ?? "Failed to reset activation ID.", Severity.Error);
@@ -389,7 +398,26 @@
         }
 
         await LoadAsync();
-        Snackbar.Add($"Activation reset. New ID: {newActivationId}", Severity.Success);
+        Snackbar.Add("Activation reset. Previous Activation ID cleared.", Severity.Success);
+    }
+
+    private async Task ShowEventLogAsync(CatEtLicenseDto row)
+    {
+        var events = (await Api.GetLicenseEventsAsync(row.Id)).ToList();
+        var parameters = new DialogParameters<web.Components.Dialogs.LicenseEventLogDialog>
+        {
+            { x => x.Title, $"{row.SerialNumber}" },
+            { x => x.Events, events }
+        };
+
+        var options = new DialogOptions
+        {
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true,
+            CloseButton = true
+        };
+
+        await DialogService.ShowAsync<web.Components.Dialogs.LicenseEventLogDialog>("Event History", parameters, options);
     }
 
     private async Task DeleteSelectedAsync()
@@ -523,10 +551,4 @@
 
     private static bool IsValidActivationId(string activationId)
         => Regex.IsMatch(activationId, "^[0-9a-f]{4}(-[0-9a-f]{4}){7}$");
-
-    private static string GenerateActivationId()
-    {
-        var hex = Guid.NewGuid().ToString("N").ToLowerInvariant();
-        return string.Join('-', Enumerable.Range(0, 8).Select(i => hex.Substring(i * 4, 4)));
-    }
 }

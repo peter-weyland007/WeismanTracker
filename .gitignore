@@ -12,6 +12,8 @@ obj/
 
 # Local runtime data
 apps/api/Data/*.db
+apps/api/Data/*.db-wal
+apps/api/Data/*.db-shm
 app.db
 
 # Logs and temp

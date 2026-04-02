@@ -22,7 +22,7 @@ public record CatEtLicenseDto(
 
 public record CreateCatEtLicenseRequest(string SerialNumber, string ActivationId, int? TrackedComputerId);
 public record UpdateCatEtLicenseRequest(string ActivationId, int? TrackedComputerId);
-public record ResetActivationRequest(string NewActivationId, string? Reason);
+public record ResetActivationRequest(string? NewActivationId, string? Reason);
 
 public record ImportCatEtLicensesResult(
     int ImportedCount,
@@ -35,3 +35,4 @@ public record ImportCatEtLicensesResult(
     List<string> OverwrittenSerialNumbers);
 
 public record DeletedRecordDto(int Id, string RecordType, string DisplayName, DateTime? DeletedAtUtc);
+public record CatEtActivationEventDto(int Id, int CatEtLicenseId, string EventType, string? Notes, DateTime OccurredAtUtc);

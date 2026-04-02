@@ -314,6 +314,23 @@ app.MapGet("/api/catet/licenses", async (AppDbContext db) =>
     return Results.Ok(licenses);
 });
 
+app.MapGet("/api/catet/licenses/{id:int}/events", async (int id, AppDbContext db) =>
+{
+    var licenseExists = await db.CatEtLicenses.AnyAsync(l => l.Id == id && l.DeletedAtUtc == null);
+    if (!licenseExists)
+    {
+        return Results.NotFound(new { message = "License not found." });
+    }
+
+    var events = await db.CatEtActivationEvents
+        .Where(e => e.CatEtLicenseId == id)
+        .OrderByDescending(e => e.OccurredAtUtc)
+        .Select(e => new CatEtActivationEventDto(e.Id, e.CatEtLicenseId, e.EventType, e.Notes, e.OccurredAtUtc))
+        .ToListAsync();
+
+    return Results.Ok(events);
+});
+
 app.MapPost("/api/catet/licenses", async (CreateCatEtLicenseRequest request, AppDbContext db) =>
 {
     if (string.IsNullOrWhiteSpace(request.SerialNumber) || string.IsNullOrWhiteSpace(request.ActivationId))
@@ -607,6 +624,12 @@ app.MapPost("/api/catet/licenses/{id:int}/activate", async (int id, AppDbContext
         return Results.BadRequest(new { message = "Activation ID is not available." });
     }
 
+    if (string.IsNullOrWhiteSpace(license.ActivationId))
+    {
+        return Results.BadRequest(new { message = "Activation ID is empty. Set a new ID before marking activated." });
+    }
+
+    var consumedActivationId = license.ActivationId;
     license.Status = CatEtLicenseStatus.Consumed;
     license.ActivatedAtUtc = DateTime.UtcNow;
 
@@ -614,7 +637,7 @@ app.MapPost("/api/catet/licenses/{id:int}/activate", async (int id, AppDbContext
     {
         CatEtLicenseId = license.Id,
         EventType = "Consumed",
-        Notes = "Activation ID marked consumed"
+        Notes = $"Activation ID consumed: {consumedActivationId}"
     });
 
     await db.SaveChangesAsync();
@@ -629,28 +652,23 @@ app.MapPost("/api/catet/licenses/{id:int}/reset", async (int id, ResetActivation
         return Results.NotFound(new { message = "License not found." });
     }
 
-    if (string.IsNullOrWhiteSpace(request.NewActivationId))
-    {
-        return Results.BadRequest(new { message = "NewActivationId is required." });
-    }
+    var previousActivationId = license.ActivationId;
 
-    var newActivationId = NormalizeActivationId(request.NewActivationId);
-    if (!activationRegex.IsMatch(newActivationId))
-    {
-        return Results.BadRequest(new { message = "NewActivationId must match xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx (hex)." });
-    }
-
-    license.ActivationId = newActivationId;
-    license.LicenseKey = newActivationId;
+    license.ActivationId = string.Empty;
+    license.LicenseKey = string.Empty;
     license.Status = CatEtLicenseStatus.Available;
     license.LastResetAtUtc = DateTime.UtcNow;
     license.ActivatedAtUtc = null;
+
+    var reason = string.IsNullOrWhiteSpace(request.Reason) ? "Activation reset" : request.Reason.Trim();
 
     db.CatEtActivationEvents.Add(new CatEtActivationEvent
     {
         CatEtLicenseId = license.Id,
         EventType = "Reset",
-        Notes = string.IsNullOrWhiteSpace(request.Reason) ? "Activation reset" : request.Reason.Trim()
+        Notes = string.IsNullOrWhiteSpace(previousActivationId)
+            ? reason
+            : $"{reason}. Previous Activation ID cleared: {previousActivationId}"
     });
 
     await db.SaveChangesAsync();
