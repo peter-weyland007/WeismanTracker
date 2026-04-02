@@ -7,6 +7,27 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">CAT ET - Activation Keys</MudText>
 
+<MudGrid Class="mb-4">
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-3" Elevation="1">
+            <MudText Typo="Typo.caption">Total Keys</MudText>
+            <MudText Typo="Typo.h5">@TotalKeys</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-3" Elevation="1">
+            <MudText Typo="Typo.caption">Total Activated Keys</MudText>
+            <MudText Typo="Typo.h5" Color="Color.Warning">@TotalActivatedKeys</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-3" Elevation="1">
+            <MudText Typo="Typo.caption">Total Available Keys</MudText>
+            <MudText Typo="Typo.h5" Color="Color.Success">@TotalAvailableKeys</MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
 <MudPaper Class="pa-4 mb-4" Elevation="1">
     <MudText Typo="Typo.h6" Class="mb-3">Add License Record</MudText>
     <MudGrid>
@@ -129,6 +150,10 @@
     private List<CatEtLicenseDto> _licenses = [];
     private List<TrackedComputerDto> _computers = [];
     private bool _isLoading = true;
+
+    private int TotalKeys => _licenses.Count;
+    private int TotalActivatedKeys => _licenses.Count(l => string.Equals(l.Status, "Consumed", StringComparison.OrdinalIgnoreCase));
+    private int TotalAvailableKeys => _licenses.Count(l => string.Equals(l.Status, "Available", StringComparison.OrdinalIgnoreCase));
     private bool _isSaving;
 
     private string _newSerialNumber = string.Empty;
