@@ -112,7 +112,7 @@
             <MudTd>@(context.LastResetAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</MudTd>
             <MudTd>
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Disabled="@(context.Status != "Available" || string.IsNullOrWhiteSpace(context.ActivationId))" OnClick="() => MarkActivatedAsync(context.Id)">Mark Activated</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Disabled="@(context.Status != "Available" || string.IsNullOrWhiteSpace(context.ActivationId) || context.TrackedComputerId is null)" OnClick="() => MarkActivatedAsync(context.Id)">Mark Activated</MudButton>
                 <MudButton Variant="Variant.Text" Color="Color.Success" Size="Size.Small" OnClick="() => ResetAsync(context.Id)">Reset</MudButton>
                 <MudButton Variant="Variant.Text" Color="Color.Info" Size="Size.Small" OnClick="() => ShowEventLogAsync(context)">History</MudButton>
                 <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => DeleteLicenseAsync(context.Id)">Delete</MudButton>

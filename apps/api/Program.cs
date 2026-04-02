@@ -624,6 +624,17 @@ app.MapPost("/api/catet/licenses/{id:int}/activate", async (int id, AppDbContext
         return Results.BadRequest(new { message = "Activation ID is not available." });
     }
 
+    if (license.TrackedComputerId is null)
+    {
+        return Results.BadRequest(new { message = "Assign this key to a computer before marking activated." });
+    }
+
+    var hasActiveComputer = await db.TrackedComputers.AnyAsync(c => c.Id == license.TrackedComputerId && c.DeletedAtUtc == null);
+    if (!hasActiveComputer)
+    {
+        return Results.BadRequest(new { message = "Assigned computer is missing or deleted. Reassign before activating." });
+    }
+
     if (string.IsNullOrWhiteSpace(license.ActivationId))
     {
         return Results.BadRequest(new { message = "Activation ID is empty. Set a new ID before marking activated." });
