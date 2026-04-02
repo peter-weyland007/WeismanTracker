@@ -9,19 +9,19 @@
 
 <MudGrid Class="mb-4">
     <MudItem xs="12" sm="4">
-        <MudPaper Class="pa-3" Elevation="1">
+        <MudPaper Class="@StatusFilterCardClass(LicenseStatusFilter.All)" Elevation="1" Style="cursor:pointer" @onclick="() => SetStatusFilter(LicenseStatusFilter.All)">
             <MudText Typo="Typo.caption">Total Keys</MudText>
             <MudText Typo="Typo.h5">@TotalKeys</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="4">
-        <MudPaper Class="pa-3" Elevation="1">
+        <MudPaper Class="@StatusFilterCardClass(LicenseStatusFilter.Activated)" Elevation="1" Style="cursor:pointer" @onclick="() => SetStatusFilter(LicenseStatusFilter.Activated)">
             <MudText Typo="Typo.caption">Total Activated Keys</MudText>
             <MudText Typo="Typo.h5" Color="Color.Warning">@TotalActivatedKeys</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="12" sm="4">
-        <MudPaper Class="pa-3" Elevation="1">
+        <MudPaper Class="@StatusFilterCardClass(LicenseStatusFilter.Available)" Elevation="1" Style="cursor:pointer" @onclick="() => SetStatusFilter(LicenseStatusFilter.Available)">
             <MudText Typo="Typo.caption">Total Available Keys</MudText>
             <MudText Typo="Typo.h5" Color="Color.Success">@TotalAvailableKeys</MudText>
         </MudPaper>
@@ -172,10 +172,15 @@
     private string _searchSerial = string.Empty;
     private SortColumn _sortColumn = SortColumn.SerialNumber;
     private bool _sortDescending;
+    private LicenseStatusFilter _statusFilter = LicenseStatusFilter.All;
 
     private IEnumerable<CatEtLicenseDto> FilteredLicenses
-        => _licenses.Where(l => string.IsNullOrWhiteSpace(_searchSerial)
-            || l.SerialNumber.Contains(_searchSerial.Trim(), StringComparison.OrdinalIgnoreCase));
+        => _licenses.Where(l =>
+            (string.IsNullOrWhiteSpace(_searchSerial)
+             || l.SerialNumber.Contains(_searchSerial.Trim(), StringComparison.OrdinalIgnoreCase))
+            && (_statusFilter == LicenseStatusFilter.All
+                || (_statusFilter == LicenseStatusFilter.Activated && string.Equals(l.Status, "Consumed", StringComparison.OrdinalIgnoreCase))
+                || (_statusFilter == LicenseStatusFilter.Available && string.Equals(l.Status, "Available", StringComparison.OrdinalIgnoreCase))));
 
     private IEnumerable<CatEtLicenseDto> SortedFilteredLicenses
         => ApplySort(FilteredLicenses);
@@ -253,6 +258,15 @@
             _selectedLicenseIds.Remove(id);
         }
     }
+
+    private void SetStatusFilter(LicenseStatusFilter filter)
+    {
+        _statusFilter = filter;
+        _selectedLicenseIds.Clear();
+    }
+
+    private string StatusFilterCardClass(LicenseStatusFilter filter)
+        => _statusFilter == filter ? "pa-3 mud-elevation-4" : "pa-3";
 
     private void SetSort(SortColumn column)
     {
@@ -640,6 +654,13 @@
 
     private static bool IsValidActivationId(string activationId)
         => Regex.IsMatch(activationId, "^[0-9a-f]{4}(-[0-9a-f]{4}){7}$");
+
+    private enum LicenseStatusFilter
+    {
+        All,
+        Activated,
+        Available
+    }
 
     private enum SortColumn
     {

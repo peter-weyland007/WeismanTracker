@@ -14,11 +14,33 @@ raw_conn="${raw_conn#\'}"
 
 if [[ -z "${raw_conn// }" ]]; then
   export ConnectionStrings__Default="Data Source=/app/data/weismantracker.db"
+elif [[ "$raw_conn" =~ ^[Dd]ata[[:space:]]+[Ss]ource= ]]; then
+  db_path="${raw_conn#*=}"
+  db_path="${db_path# }"
+
+  # Force container writes into the mounted persistent /app/data path.
+  if [[ "$db_path" != /* ]]; then
+    db_path="/app/data/${db_path#./}"
+  fi
+
+  # If a directory-like value was provided (e.g. 'Data'), append default filename.
+  if [[ "$db_path" != *.db ]]; then
+    db_path="${db_path%/}/weismantracker.db"
+  fi
+
+  export ConnectionStrings__Default="Data Source=$db_path"
 elif [[ "$raw_conn" == *=* ]]; then
   export ConnectionStrings__Default="$raw_conn"
 else
   # If a plain file path was provided, normalize it to a valid Sqlite connection string.
-  export ConnectionStrings__Default="Data Source=$raw_conn"
+  db_path="$raw_conn"
+  if [[ "$db_path" != /* ]]; then
+    db_path="/app/data/${db_path#./}"
+  fi
+  if [[ "$db_path" != *.db ]]; then
+    db_path="${db_path%/}/weismantracker.db"
+  fi
+  export ConnectionStrings__Default="Data Source=$db_path"
 fi
 
 mkdir -p /app/data
