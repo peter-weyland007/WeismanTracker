@@ -50,8 +50,11 @@
 @if (_editingLicenseId is not null)
 {
     <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudText Typo="Typo.h6" Class="mb-3">Edit Activation ID</MudText>
+        <MudText Typo="Typo.h6" Class="mb-3">Edit Activation Key</MudText>
         <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudTextField Value="@_editingSerialNumber" Label="Serial Number" Variant="Variant.Outlined" ReadOnly="true" />
+            </MudItem>
             <MudItem xs="12" md="4">
                 <MudTextField @bind-Value="EditActivationIdInput" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
             </MudItem>
@@ -132,6 +135,7 @@
     private int? _selectedComputerId;
 
     private int? _editingLicenseId;
+    private string _editingSerialNumber = string.Empty;
     private string _editActivationId = string.Empty;
     private int? _editTrackedComputerId;
 
@@ -327,6 +331,7 @@
     private void BeginEdit(CatEtLicenseDto row)
     {
         _editingLicenseId = row.Id;
+        _editingSerialNumber = row.SerialNumber;
         _editActivationId = row.ActivationId ?? string.Empty;
         _editTrackedComputerId = row.TrackedComputerId;
     }
@@ -334,6 +339,7 @@
     private void CancelEdit()
     {
         _editingLicenseId = null;
+        _editingSerialNumber = string.Empty;
         _editActivationId = string.Empty;
         _editTrackedComputerId = null;
     }
