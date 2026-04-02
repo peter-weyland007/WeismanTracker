@@ -1,0 +1,59 @@
+@using web.Models
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h6" GutterBottom="true">Import Summary</MudText>
+
+        <div>Imported: <b>@_result.ImportedCount</b></div>
+        <div>Already in DB (same Activation ID): <b>@_result.UnchangedDuplicateCount</b></div>
+        <div>Mismatched Activation IDs: <b>@_result.MismatchCount</b></div>
+        <div>Overwritten: <b>@_result.OverwrittenCount</b></div>
+        <div>Invalid rows: <b>@_result.InvalidRows.Count</b></div>
+
+        @if (_result.MismatchSerialNumbers.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined" Class="mt-2">
+                Mismatch serials: @string.Join(", ", _result.MismatchSerialNumbers.Take(12))
+            </MudAlert>
+        }
+
+        @if (_result.InvalidRows.Count > 0)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Variant="Variant.Outlined" Class="mt-2">
+                @foreach (var rowMessage in _result.InvalidRows.Take(6))
+                {
+                    <div>@rowMessage</div>
+                }
+            </MudAlert>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Close">Close</MudButton>
+
+        @if (_canOverwrite)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="Overwrite">Overwrite Mismatches</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public ImportCatEtLicensesResult Result { get; set; } = default!;
+    [Parameter] public bool CanOverwrite { get; set; }
+
+    private ImportCatEtLicensesResult _result = default!;
+    private bool _canOverwrite;
+
+    protected override void OnParametersSet()
+    {
+        _result = Result;
+        _canOverwrite = CanOverwrite;
+    }
+
+    private void Close() => MudDialog.Close(DialogResult.Cancel());
+
+    private void Overwrite() => MudDialog.Close(DialogResult.Ok("overwrite"));
+}

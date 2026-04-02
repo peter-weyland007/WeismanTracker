@@ -1,0 +1,209 @@
+@page "/assets/computers"
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>CAT ET Computers</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">CAT ET - Computers</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" Class="mb-3">Add Computer</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <MudTextField @bind-Value="_newHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudTextField @bind-Value="_newAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="int?" @bind-Value="_selectedPersonId" Label="Assigned User (optional)" Variant="Variant.Outlined">
+                <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
+                @foreach (var person in _people)
+                {
+                    <MudSelectItem Value="@((int?)person.Id)">@person.FullName</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="2" Class="d-flex align-end">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateComputerAsync" Disabled="_isSaving">Add</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_editingComputerId is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudText Typo="Typo.h6" Class="mb-3">Edit Computer</MudText>
+        <MudGrid>
+            <MudItem xs="12" md="3">
+                <MudTextField @bind-Value="_editHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudTextField @bind-Value="_editAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="int?" @bind-Value="_editPersonId" Label="Assigned User (optional)" Variant="Variant.Outlined">
+                    <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
+                    @foreach (var person in _people)
+                    {
+                        <MudSelectItem Value="@((int?)person.Id)">@person.FullName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="2" Class="d-flex align-end gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+<MudPaper Class="pa-2" Elevation="1">
+    <MudTable Items="_computers" Hover="true" Dense="true" Loading="_isLoading">
+        <HeaderContent>
+            <MudTh>Hostname</MudTh>
+            <MudTh>Asset Tag</MudTh>
+            <MudTh>Assigned User</MudTh>
+            <MudTh>Created (UTC)</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Hostname</MudTd>
+            <MudTd>@context.AssetTag</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonName) ? "Unassigned" : context.TrackedPersonName)</MudTd>
+            <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => DeleteComputerAsync(context.Id)">Delete</MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Class="pa-4">No computers yet.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<TrackedComputerDto> _computers = [];
+    private List<TrackedPersonDto> _people = [];
+    private bool _isLoading = true;
+    private bool _isSaving;
+
+    private string _newHostname = string.Empty;
+    private string _newAssetTag = string.Empty;
+    private int? _selectedPersonId;
+
+    private int? _editingComputerId;
+    private string _editHostname = string.Empty;
+    private string _editAssetTag = string.Empty;
+    private int? _editPersonId;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        _people = (await Api.GetPeopleAsync()).ToList();
+        _computers = (await Api.GetComputersAsync()).ToList();
+        _isLoading = false;
+    }
+
+    private async Task CreateComputerAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newHostname) || string.IsNullOrWhiteSpace(_newAssetTag))
+        {
+            Snackbar.Add("Hostname and Asset Tag are required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.CreateComputerAsync(new CreateTrackedComputerRequest(_newHostname.Trim(), _newAssetTag.Trim(), _selectedPersonId));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to create computer.", Severity.Error);
+            return;
+        }
+
+        _newHostname = string.Empty;
+        _newAssetTag = string.Empty;
+        _selectedPersonId = null;
+        await LoadAsync();
+        Snackbar.Add("Computer added.", Severity.Success);
+    }
+
+    private void BeginEdit(TrackedComputerDto computer)
+    {
+        _editingComputerId = computer.Id;
+        _editHostname = computer.Hostname;
+        _editAssetTag = computer.AssetTag;
+        _editPersonId = computer.TrackedPersonId;
+    }
+
+    private void CancelEdit()
+    {
+        _editingComputerId = null;
+        _editHostname = string.Empty;
+        _editAssetTag = string.Empty;
+        _editPersonId = null;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editingComputerId is null || string.IsNullOrWhiteSpace(_editHostname) || string.IsNullOrWhiteSpace(_editAssetTag))
+        {
+            Snackbar.Add("Hostname and Asset Tag are required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.UpdateComputerAsync(_editingComputerId.Value, new CreateTrackedComputerRequest(_editHostname.Trim(), _editAssetTag.Trim(), _editPersonId));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to update computer.", Severity.Error);
+            return;
+        }
+
+        CancelEdit();
+        await LoadAsync();
+        Snackbar.Add("Computer updated.", Severity.Success);
+    }
+
+    private async Task DeleteComputerAsync(int id)
+    {
+        var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
+        {
+            { x => x.Message, "Soft delete this computer?" }
+        };
+
+        var options = new DialogOptions { NoHeader = true, CloseButton = false };
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ConfirmDeleteDialog>(string.Empty, parameters, options);
+        var confirm = await dialog.Result;
+        if (confirm is null || confirm.Canceled)
+        {
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.DeleteComputerAsync(id);
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to delete computer.", Severity.Error);
+            return;
+        }
+
+        if (_editingComputerId == id)
+        {
+            CancelEdit();
+        }
+
+        await LoadAsync();
+        Snackbar.Add("Computer soft-deleted.", Severity.Success);
+    }
+}

@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/.DS_Store
+.git
+.gitignore
+.vscode
+.idea
+*.user
+*.suo
+*.swp
+apps/api/Data/*.db

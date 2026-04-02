@@ -1,0 +1,42 @@
+@page "/"
+
+<PageTitle>WeismanTracker</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-1">WeismanTracker</MudText>
+<MudText Typo="Typo.subtitle1" Class="mb-4 mud-secondary-text">CAT ET activation key ownership and assignment tracking</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="4">
+        <MudCard>
+            <MudCardContent>
+                <MudText Typo="Typo.h6">People</MudText>
+                <MudText Typo="Typo.body2">Manage users that laptops are assigned to.</MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Href="/assets/users" Variant="Variant.Filled" Color="Color.Primary">Open</MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudCard>
+            <MudCardContent>
+                <MudText Typo="Typo.h6">Computers</MudText>
+                <MudText Typo="Typo.body2">Map laptops/computers to users.</MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Href="/assets/computers" Variant="Variant.Filled" Color="Color.Primary">Open</MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" md="4">
+        <MudCard>
+            <MudCardContent>
+                <MudText Typo="Typo.h6">License Keys</MudText>
+                <MudText Typo="Typo.body2">Assign CAT ET keys to computers and trace ownership.</MudText>
+            </MudCardContent>
+            <MudCardActions>
+                <MudButton Href="/catet/licenses" Variant="Variant.Filled" Color="Color.Primary">Open</MudButton>
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+</MudGrid>

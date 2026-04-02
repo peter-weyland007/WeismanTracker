@@ -1,0 +1,23 @@
+bin/
+obj/
+**/bin/
+**/obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+.DS_Store
+
+# Local runtime data
+apps/api/Data/*.db
+app.db
+
+# Logs and temp
+*.log
+*.tmp
+
+# Playwright temp artifacts
+test-results/
+playwright-report/

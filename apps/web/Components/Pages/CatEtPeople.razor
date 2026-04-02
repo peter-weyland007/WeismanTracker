@@ -1,0 +1,182 @@
+@page "/assets/users"
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>CAT ET People</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">CAT ET - People</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" Class="mb-3">Add Person</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="5">
+            <MudTextField @bind-Value="_newFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="5">
+            <MudTextField @bind-Value="_newEmail" Label="Email (optional)" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="2" Class="d-flex align-end">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreatePersonAsync" Disabled="_isSaving">Add</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_editingPersonId is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudText Typo="Typo.h6" Class="mb-3">Edit Person</MudText>
+        <MudGrid>
+            <MudItem xs="12" md="5">
+                <MudTextField @bind-Value="_editFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="5">
+                <MudTextField @bind-Value="_editEmail" Label="Email (optional)" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="2" Class="d-flex align-end gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+<MudPaper Class="pa-2" Elevation="1">
+    <MudTable Items="_people" Hover="true" Dense="true" Loading="_isLoading">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Created (UTC)</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.FullName</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.Email) ? "-" : context.Email)</MudTd>
+            <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => DeletePersonAsync(context.Id)">Delete</MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Class="pa-4">No people yet.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<TrackedPersonDto> _people = [];
+    private bool _isLoading = true;
+    private bool _isSaving;
+
+    private string _newFullName = string.Empty;
+    private string _newEmail = string.Empty;
+
+    private int? _editingPersonId;
+    private string _editFullName = string.Empty;
+    private string _editEmail = string.Empty;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        _people = (await Api.GetPeopleAsync()).ToList();
+        _isLoading = false;
+    }
+
+    private async Task CreatePersonAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newFullName))
+        {
+            Snackbar.Add("Full name is required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.CreatePersonAsync(new CreateTrackedPersonRequest(_newFullName.Trim(), string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail.Trim()));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to create person.", Severity.Error);
+            return;
+        }
+
+        _newFullName = string.Empty;
+        _newEmail = string.Empty;
+        await LoadAsync();
+        Snackbar.Add("Person added.", Severity.Success);
+    }
+
+    private void BeginEdit(TrackedPersonDto person)
+    {
+        _editingPersonId = person.Id;
+        _editFullName = person.FullName;
+        _editEmail = person.Email ?? string.Empty;
+    }
+
+    private void CancelEdit()
+    {
+        _editingPersonId = null;
+        _editFullName = string.Empty;
+        _editEmail = string.Empty;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editingPersonId is null || string.IsNullOrWhiteSpace(_editFullName))
+        {
+            Snackbar.Add("Full name is required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.UpdatePersonAsync(_editingPersonId.Value, new CreateTrackedPersonRequest(_editFullName.Trim(), string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim()));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to update person.", Severity.Error);
+            return;
+        }
+
+        CancelEdit();
+        await LoadAsync();
+        Snackbar.Add("Person updated.", Severity.Success);
+    }
+
+    private async Task DeletePersonAsync(int id)
+    {
+        var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
+        {
+            { x => x.Message, "Soft delete this person?" }
+        };
+
+        var options = new DialogOptions { NoHeader = true, CloseButton = false };
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ConfirmDeleteDialog>(string.Empty, parameters, options);
+        var confirm = await dialog.Result;
+        if (confirm is null || confirm.Canceled)
+        {
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.DeletePersonAsync(id);
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to delete person.", Severity.Error);
+            return;
+        }
+
+        if (_editingPersonId == id)
+        {
+            CancelEdit();
+        }
+
+        await LoadAsync();
+        Snackbar.Add("Person soft-deleted.", Severity.Success);
+    }
+}

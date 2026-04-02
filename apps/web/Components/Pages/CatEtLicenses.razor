@@ -1,0 +1,532 @@
+@page "/catet/licenses"
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>CAT ET Activation Keys</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">CAT ET - Activation Keys</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" Class="mb-3">Add License Record</MudText>
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <MudTextField @bind-Value="NewSerialNumberInput" Immediate="true" Label="Serial Number" Placeholder="EA021234" HelperText="Format: AA123456" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudTextField @bind-Value="NewActivationIdInput" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="int?" @bind-Value="_selectedComputerId" Label="Computer (optional)" Variant="Variant.Outlined">
+                <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
+                @foreach (var computer in _computers)
+                {
+                    <MudSelectItem Value="@((int?)computer.Id)">@computer.Hostname (@computer.AssetTag) - @computer.TrackedPersonName</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="2" Class="d-flex align-end">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateAsync" Disabled="_isSaving">Save</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" Class="mb-3">Import from Excel/CSV</MudText>
+    <MudText Typo="Typo.body2" Class="mb-2">Expected columns: <b>Serial Number</b> in column A and <b>Activation ID</b> in column B. Supports .xlsx and .csv.</MudText>
+    <MudButton Variant="Variant.Outlined" Color="Color.Info" Href="/downloads/activation-keys-template.csv" StartIcon="@Icons.Material.Filled.Download" Class="mb-3">Download Template (Excel CSV)</MudButton>
+    <MudGrid>
+        <MudItem xs="12" md="8">
+            <InputFile OnChange="OnImportFileSelected" accept=".xlsx,.csv" />
+            <MudText Typo="Typo.caption" Class="mt-1">@(_importFileName ?? "No file selected")</MudText>
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-end">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportAsync" Disabled="_isImporting || _importFile is null">Import</MudButton>
+        </MudItem>
+    </MudGrid>
+
+</MudPaper>
+
+@if (_editingLicenseId is not null)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudText Typo="Typo.h6" Class="mb-3">Edit Activation ID</MudText>
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudTextField @bind-Value="EditActivationIdInput" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="int?" @bind-Value="_editTrackedComputerId" Label="Computer (optional)" Variant="Variant.Outlined">
+                    <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
+                    @foreach (var computer in _computers)
+                    {
+                        <MudSelectItem Value="@((int?)computer.Id)">@computer.Hostname (@computer.AssetTag) - @computer.TrackedPersonName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-end gap-2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+<MudPaper Class="pa-2" Elevation="1">
+    <div class="d-flex align-center justify-space-between px-2 pt-2 pb-1">
+        <MudText Typo="Typo.subtitle2">Selected: @_selectedLicenseIds.Count</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_selectedLicenseIds.Count == 0)" OnClick="DeleteSelectedAsync">
+            Delete Selected
+        </MudButton>
+    </div>
+
+    <MudTable Items="_licenses" Hover="true" Dense="true" Loading="_isLoading">
+        <HeaderContent>
+            <MudTh><MudCheckBox T="bool?" TriState="true" Value="@SelectAllState" ValueChanged="ToggleSelectAll" /></MudTh>
+            <MudTh>Serial Number</MudTh>
+            <MudTh>Activation ID</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Computer</MudTh>
+            <MudTh>User</MudTh>
+            <MudTh>Activated</MudTh>
+            <MudTh>Reset</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><MudCheckBox T="bool" Value="@_selectedLicenseIds.Contains(context.Id)" ValueChanged="@(checkedValue => ToggleSelected(context.Id, checkedValue))" /></MudTd>
+            <MudTd>@context.SerialNumber</MudTd>
+            <MudTd>@context.ActivationId</MudTd>
+            <MudTd><MudChip T="string" Color="@StatusColor(context.Status)" Variant="Variant.Outlined" Size="Size.Small">@context.Status</MudChip></MudTd>
+            <MudTd>@FormatComputer(context)</MudTd>
+            <MudTd>@(context.TrackedPersonName ?? "Unassigned")</MudTd>
+            <MudTd>@(context.ActivatedAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</MudTd>
+            <MudTd>@(context.LastResetAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</MudTd>
+            <MudTd>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Warning" Size="Size.Small" Disabled="@(context.Status != "Available")" OnClick="() => MarkActivatedAsync(context.Id)">Mark Activated</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Success" Size="Size.Small" OnClick="() => ResetAsync(context.Id)">Reset</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => DeleteLicenseAsync(context.Id)">Delete</MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<CatEtLicenseDto> _licenses = [];
+    private List<TrackedComputerDto> _computers = [];
+    private bool _isLoading = true;
+    private bool _isSaving;
+
+    private string _newSerialNumber = string.Empty;
+    private string _newActivationId = string.Empty;
+    private int? _selectedComputerId;
+
+    private int? _editingLicenseId;
+    private string _editActivationId = string.Empty;
+    private int? _editTrackedComputerId;
+
+    private IBrowserFile? _importFile;
+    private string? _importFileName;
+    private bool _isImporting;
+    private HashSet<int> _selectedLicenseIds = [];
+
+    private bool? SelectAllState => _licenses.Count == 0
+        ? false
+        : _licenses.All(l => _selectedLicenseIds.Contains(l.Id))
+            ? true
+            : _selectedLicenseIds.Count > 0
+                ? null
+                : false;
+
+    private string NewSerialNumberInput
+    {
+        get => _newSerialNumber;
+        set => _newSerialNumber = NormalizeSerial(value);
+    }
+
+    private string NewActivationIdInput
+    {
+        get => _newActivationId;
+        set => _newActivationId = NormalizeActivationId(value);
+    }
+
+    private string EditActivationIdInput
+    {
+        get => _editActivationId;
+        set => _editActivationId = NormalizeActivationId(value);
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        _computers = (await Api.GetComputersAsync()).ToList();
+        _licenses = (await Api.GetLicensesAsync()).ToList();
+        _selectedLicenseIds.RemoveWhere(id => !_licenses.Any(l => l.Id == id));
+        _isLoading = false;
+    }
+
+    private void ToggleSelected(int id, bool isChecked)
+    {
+        if (isChecked)
+        {
+            _selectedLicenseIds.Add(id);
+            return;
+        }
+
+        _selectedLicenseIds.Remove(id);
+    }
+
+    private void ToggleSelectAll(bool? selectAll)
+    {
+        if (selectAll == true)
+        {
+            _selectedLicenseIds = _licenses.Select(l => l.Id).ToHashSet();
+            return;
+        }
+
+        _selectedLicenseIds.Clear();
+    }
+
+    private void OnImportFileSelected(InputFileChangeEventArgs e)
+    {
+        _importFile = e.File;
+        _importFileName = _importFile?.Name;
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_importFile is null)
+        {
+            Snackbar.Add("Select an .xlsx or .csv file first.", Severity.Warning);
+            return;
+        }
+
+        var initialResult = await ExecuteImportAsync(forceOverwrite: false);
+        if (initialResult is null)
+        {
+            return;
+        }
+
+        var action = await ShowImportResultsDialogAsync(initialResult, canOverwrite: initialResult.MismatchCount > 0);
+
+        if (action == "overwrite" && _importFile is not null)
+        {
+            var overwriteResult = await ExecuteImportAsync(forceOverwrite: true);
+            if (overwriteResult is not null)
+            {
+                await ShowImportResultsDialogAsync(overwriteResult, canOverwrite: false);
+            }
+        }
+
+        _importFile = null;
+        _importFileName = null;
+    }
+
+    private async Task<ImportCatEtLicensesResult?> ExecuteImportAsync(bool forceOverwrite)
+    {
+        if (_importFile is null)
+        {
+            return null;
+        }
+
+        _isImporting = true;
+        await using var stream = _importFile.OpenReadStream(10 * 1024 * 1024);
+        var (ok, result, err) = await Api.ImportLicensesAsync(stream, _importFile.Name, forceOverwrite);
+        _isImporting = false;
+
+        if (!ok || result is null)
+        {
+            Snackbar.Add(err ?? "Import failed.", Severity.Error);
+            return null;
+        }
+
+        await LoadAsync();
+        return result;
+    }
+
+    private async Task<string?> ShowImportResultsDialogAsync(ImportCatEtLicensesResult result, bool canOverwrite)
+    {
+        var parameters = new DialogParameters<web.Components.Dialogs.ImportResultDialog>
+        {
+            { x => x.Result, result },
+            { x => x.CanOverwrite, canOverwrite }
+        };
+
+        var options = new DialogOptions
+        {
+            CloseButton = true,
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ImportResultDialog>("Import Results", parameters, options);
+        var dialogResult = await dialog.Result;
+        if (dialogResult is null || dialogResult.Canceled)
+        {
+            return null;
+        }
+
+        return dialogResult.Data?.ToString();
+    }
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newSerialNumber) || string.IsNullOrWhiteSpace(_newActivationId))
+        {
+            Snackbar.Add("Serial Number and Activation ID are required.", Severity.Warning);
+            return;
+        }
+
+        var serial = NormalizeSerial(_newSerialNumber);
+        var activationId = NormalizeActivationId(_newActivationId);
+
+        if (!IsValidSerial(serial))
+        {
+            Snackbar.Add("Serial Number must match AA123456 (example: EA021234).", Severity.Warning);
+            return;
+        }
+
+        if (!IsValidActivationId(activationId))
+        {
+            Snackbar.Add("Activation ID must be 8 groups of 4 hex chars.", Severity.Warning);
+            return;
+        }
+
+        _newSerialNumber = serial;
+        _newActivationId = activationId;
+
+        _isSaving = true;
+        var (ok, err) = await Api.CreateLicenseAsync(new CreateCatEtLicenseRequest(serial, activationId, _selectedComputerId));
+        _isSaving = false;
+
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to create license record.", Severity.Error);
+            return;
+        }
+
+        _newSerialNumber = string.Empty;
+        _newActivationId = string.Empty;
+        _selectedComputerId = null;
+        await LoadAsync();
+        Snackbar.Add("License record saved.", Severity.Success);
+    }
+
+    private void BeginEdit(CatEtLicenseDto row)
+    {
+        _editingLicenseId = row.Id;
+        _editActivationId = row.ActivationId;
+        _editTrackedComputerId = row.TrackedComputerId;
+    }
+
+    private void CancelEdit()
+    {
+        _editingLicenseId = null;
+        _editActivationId = string.Empty;
+        _editTrackedComputerId = null;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editingLicenseId is null || string.IsNullOrWhiteSpace(_editActivationId))
+        {
+            return;
+        }
+
+        var activationId = NormalizeActivationId(_editActivationId);
+        if (!IsValidActivationId(activationId))
+        {
+            Snackbar.Add("Activation ID must be 8 groups of 4 hex chars.", Severity.Warning);
+            return;
+        }
+
+        _editActivationId = activationId;
+
+        _isSaving = true;
+        var (ok, err) = await Api.UpdateLicenseAsync(_editingLicenseId.Value, new UpdateCatEtLicenseRequest(activationId, _editTrackedComputerId));
+        _isSaving = false;
+
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to update activation ID.", Severity.Error);
+            return;
+        }
+
+        CancelEdit();
+        await LoadAsync();
+        Snackbar.Add("Activation ID updated.", Severity.Success);
+    }
+
+    private async Task MarkActivatedAsync(int id)
+    {
+        var (ok, err) = await Api.MarkActivatedAsync(id);
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to mark activated.", Severity.Error);
+            return;
+        }
+
+        await LoadAsync();
+        Snackbar.Add("Activation ID marked as consumed.", Severity.Success);
+    }
+
+    private async Task ResetAsync(int id)
+    {
+        var current = _licenses.FirstOrDefault(x => x.Id == id);
+        if (current is null)
+        {
+            return;
+        }
+
+        var newActivationId = GenerateActivationId();
+        var (ok, err) = await Api.ResetActivationAsync(id, new ResetActivationRequest(newActivationId, "Manual reset from UI"));
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to reset activation ID.", Severity.Error);
+            return;
+        }
+
+        await LoadAsync();
+        Snackbar.Add($"Activation reset. New ID: {newActivationId}", Severity.Success);
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (_selectedLicenseIds.Count == 0)
+        {
+            return;
+        }
+
+        var ids = _selectedLicenseIds.ToList();
+        var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
+        {
+            { x => x.Message, $"Soft delete {ids.Count} selected activation key(s)?" }
+        };
+
+        var options = new DialogOptions { NoHeader = true, CloseButton = false };
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ConfirmDeleteDialog>(string.Empty, parameters, options);
+        var confirm = await dialog.Result;
+        if (confirm is null || confirm.Canceled)
+        {
+            return;
+        }
+
+        var failures = new List<string>();
+        foreach (var id in ids)
+        {
+            var (ok, err) = await Api.DeleteLicenseAsync(id);
+            if (!ok)
+            {
+                failures.Add($"{id}: {err ?? "Unknown error"}");
+            }
+
+            if (_editingLicenseId == id)
+            {
+                CancelEdit();
+            }
+        }
+
+        await LoadAsync();
+        _selectedLicenseIds.Clear();
+
+        var deletedCount = ids.Count - failures.Count;
+        if (deletedCount > 0)
+        {
+            Snackbar.Add($"Soft-deleted {deletedCount} activation key(s).", Severity.Success);
+        }
+
+        foreach (var failure in failures.Take(3))
+        {
+            Snackbar.Add($"Delete failed - {failure}", Severity.Error);
+        }
+
+        if (failures.Count > 3)
+        {
+            Snackbar.Add($"{failures.Count - 3} additional delete failures not shown.", Severity.Warning);
+        }
+    }
+
+    private async Task DeleteLicenseAsync(int id)
+    {
+        var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
+        {
+            { x => x.Message, "Soft delete this activation key?" }
+        };
+
+        var options = new DialogOptions { NoHeader = true, CloseButton = false };
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ConfirmDeleteDialog>(string.Empty, parameters, options);
+        var confirm = await dialog.Result;
+        if (confirm is null || confirm.Canceled)
+        {
+            return;
+        }
+
+        var (ok, err) = await Api.DeleteLicenseAsync(id);
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to delete activation key.", Severity.Error);
+            return;
+        }
+
+        if (_editingLicenseId == id)
+        {
+            CancelEdit();
+        }
+
+        _selectedLicenseIds.Remove(id);
+        await LoadAsync();
+        Snackbar.Add("Activation key soft-deleted.", Severity.Success);
+    }
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Available" => Color.Success,
+        "Consumed" => Color.Warning,
+        "Revoked" => Color.Error,
+        _ => Color.Default
+    };
+
+    private static string FormatComputer(CatEtLicenseDto row)
+        => string.IsNullOrWhiteSpace(row.Hostname) || string.IsNullOrWhiteSpace(row.AssetTag) ? "Unassigned" : $"{row.Hostname} ({row.AssetTag})";
+
+    private static string Mask(string value)
+        => string.IsNullOrWhiteSpace(value) || value.Length <= 8 ? value : $"{value[..4]}...{value[^4..]}";
+
+    private static string NormalizeSerial(string input)
+    {
+        var normalized = new string(input.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        return normalized.Length > 8 ? normalized[..8] : normalized;
+    }
+
+    private static string NormalizeActivationId(string input)
+    {
+        var hex = new string(input.ToLowerInvariant().Where(Uri.IsHexDigit).ToArray());
+        if (hex.Length > 32)
+        {
+            hex = hex[..32];
+        }
+
+        var groups = new List<string>();
+        for (var i = 0; i < hex.Length; i += 4)
+        {
+            var length = Math.Min(4, hex.Length - i);
+            groups.Add(hex.Substring(i, length));
+        }
+
+        return string.Join('-', groups);
+    }
+
+    private static bool IsValidSerial(string serial)
+        => Regex.IsMatch(serial, "^[A-Z]{2}[0-9]{6}$");
+
+    private static bool IsValidActivationId(string activationId)
+        => Regex.IsMatch(activationId, "^[0-9a-f]{4}(-[0-9a-f]{4}){7}$");
+
+    private static string GenerateActivationId()
+    {
+        var hex = Guid.NewGuid().ToString("N").ToLowerInvariant();
+        return string.Join('-', Enumerable.Range(0, 8).Select(i => hex.Substring(i * 4, 4)));
+    }
+}

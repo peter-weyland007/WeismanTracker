@@ -1,0 +1,170 @@
+@page "/admin/records"
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+
+<PageTitle>Admin - Hard Delete</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Admin - Hard Delete Records</MudText>
+<MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+    Hard delete permanently removes soft-deleted records. This cannot be undone.
+</MudAlert>
+
+<MudPaper Class="pa-2" Elevation="1">
+    <div class="d-flex align-center justify-space-between px-2 pt-2 pb-1">
+        <MudText Typo="Typo.subtitle2">Selected: @_selectedRecordKeys.Count</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Error" Disabled="@(_selectedRecordKeys.Count == 0)" OnClick="HardDeleteSelectedAsync">
+            Hard Delete Selected
+        </MudButton>
+    </div>
+
+    <MudTable Items="_records" Hover="true" Dense="true" Loading="_isLoading">
+        <HeaderContent>
+            <MudTh><MudCheckBox T="bool?" TriState="true" Value="@SelectAllState" ValueChanged="ToggleSelectAll" /></MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Record</MudTh>
+            <MudTh>Deleted At (UTC)</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd><MudCheckBox T="bool" Value="@_selectedRecordKeys.Contains(RowKey(context))" ValueChanged="@(v => ToggleSelected(RowKey(context), v))" /></MudTd>
+            <MudTd>@context.RecordType</MudTd>
+            <MudTd>@context.DisplayName</MudTd>
+            <MudTd>@(context.DeletedAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</MudTd>
+            <MudTd>
+                <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => HardDeleteAsync(context)">Hard Delete</MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Class="pa-4">No soft-deleted records.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<DeletedRecordDto> _records = [];
+    private bool _isLoading = true;
+    private HashSet<string> _selectedRecordKeys = [];
+
+    private bool? SelectAllState => _records.Count == 0
+        ? false
+        : _records.All(r => _selectedRecordKeys.Contains(RowKey(r)))
+            ? true
+            : _selectedRecordKeys.Count > 0
+                ? null
+                : false;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        _records = (await Api.GetDeletedRecordsAsync()).ToList();
+
+        var validKeys = _records.Select(RowKey).ToHashSet();
+        _selectedRecordKeys.RemoveWhere(key => !validKeys.Contains(key));
+        _isLoading = false;
+    }
+
+    private static string RowKey(DeletedRecordDto row) => $"{row.RecordType}:{row.Id}";
+
+    private void ToggleSelected(string key, bool isChecked)
+    {
+        if (isChecked)
+        {
+            _selectedRecordKeys.Add(key);
+            return;
+        }
+
+        _selectedRecordKeys.Remove(key);
+    }
+
+    private void ToggleSelectAll(bool? selectAll)
+    {
+        if (selectAll == true)
+        {
+            _selectedRecordKeys = _records.Select(RowKey).ToHashSet();
+            return;
+        }
+
+        _selectedRecordKeys.Clear();
+    }
+
+    private async Task HardDeleteSelectedAsync()
+    {
+        if (_selectedRecordKeys.Count == 0)
+        {
+            return;
+        }
+
+        var selectedRows = _records.Where(r => _selectedRecordKeys.Contains(RowKey(r))).ToList();
+        var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
+        {
+            { x => x.Message, $"Permanently delete {selectedRows.Count} selected record(s)? This cannot be undone." }
+        };
+
+        var options = new DialogOptions { NoHeader = true, CloseButton = false };
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ConfirmDeleteDialog>(string.Empty, parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+        {
+            return;
+        }
+
+        var failures = new List<string>();
+        foreach (var row in selectedRows)
+        {
+            var (ok, err) = await Api.HardDeleteRecordAsync(row.RecordType, row.Id);
+            if (!ok)
+            {
+                failures.Add($"{row.RecordType}:{row.Id} - {err ?? "Unknown error"}");
+            }
+        }
+
+        await LoadAsync();
+        _selectedRecordKeys.Clear();
+
+        var successCount = selectedRows.Count - failures.Count;
+        if (successCount > 0)
+        {
+            Snackbar.Add($"Permanently deleted {successCount} record(s).", Severity.Success);
+        }
+
+        foreach (var failure in failures.Take(3))
+        {
+            Snackbar.Add($"Hard delete failed - {failure}", Severity.Error);
+        }
+
+        if (failures.Count > 3)
+        {
+            Snackbar.Add($"{failures.Count - 3} additional hard-delete failures not shown.", Severity.Warning);
+        }
+    }
+
+    private async Task HardDeleteAsync(DeletedRecordDto row)
+    {
+        var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
+        {
+            { x => x.Message, $"Permanently delete this {row.RecordType} record? {row.DisplayName}" }
+        };
+
+        var options = new DialogOptions { NoHeader = true, CloseButton = false };
+        var dialog = await DialogService.ShowAsync<web.Components.Dialogs.ConfirmDeleteDialog>(string.Empty, parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled)
+        {
+            return;
+        }
+
+        var (ok, err) = await Api.HardDeleteRecordAsync(row.RecordType, row.Id);
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Hard delete failed.", Severity.Error);
+            return;
+        }
+
+        _selectedRecordKeys.Remove(RowKey(row));
+        await LoadAsync();
+        Snackbar.Add("Record permanently deleted.", Severity.Success);
+    }
+}
