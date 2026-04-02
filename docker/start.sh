@@ -23,6 +23,7 @@ fi
 
 mkdir -p /app/data
 
+echo "Using DB: ${ConnectionStrings__Default}"
 echo "Starting API on :${API_PORT}"
 (
   cd /app/api
