@@ -666,7 +666,7 @@ app.MapPost("/api/catet/licenses/{id:int}/reset", async (int id, ResetActivation
     var previousActivationId = license.ActivationId;
 
     license.ActivationId = string.Empty;
-    license.LicenseKey = string.Empty;
+    license.LicenseKey = $"CLEARED-{license.Id}-{Guid.NewGuid():N}";
     license.Status = CatEtLicenseStatus.Available;
     license.LastResetAtUtc = DateTime.UtcNow;
     license.ActivatedAtUtc = null;
