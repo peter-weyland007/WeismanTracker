@@ -331,6 +331,30 @@ app.MapGet("/api/catet/licenses/{id:int}/events", async (int id, AppDbContext db
     return Results.Ok(events);
 });
 
+app.MapGet("/api/catet/activity", async (AppDbContext db) =>
+{
+    var events = await db.CatEtActivationEvents
+        .Include(e => e.CatEtLicense)
+            .ThenInclude(l => l!.TrackedComputer)
+                .ThenInclude(c => c!.TrackedPerson)
+        .OrderByDescending(e => e.OccurredAtUtc)
+        .Select(e => new CatEtActivationActivityRowDto(
+            e.Id,
+            e.CatEtLicenseId,
+            e.CatEtLicense != null ? e.CatEtLicense.SerialNumber : "Unknown",
+            e.EventType,
+            e.Notes,
+            e.OccurredAtUtc,
+            e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null ? e.CatEtLicense.TrackedComputer.Hostname : null,
+            e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null ? e.CatEtLicense.TrackedComputer.AssetTag : null,
+            e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null && e.CatEtLicense.TrackedComputer.TrackedPerson != null
+                ? e.CatEtLicense.TrackedComputer.TrackedPerson.FullName
+                : null))
+        .ToListAsync();
+
+    return Results.Ok(events);
+});
+
 app.MapPost("/api/catet/licenses", async (CreateCatEtLicenseRequest request, AppDbContext db) =>
 {
     if (string.IsNullOrWhiteSpace(request.SerialNumber) || string.IsNullOrWhiteSpace(request.ActivationId))

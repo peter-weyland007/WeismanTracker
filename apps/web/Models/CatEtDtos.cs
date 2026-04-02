@@ -36,3 +36,13 @@ public record ImportCatEtLicensesResult(
 
 public record DeletedRecordDto(int Id, string RecordType, string DisplayName, DateTime? DeletedAtUtc);
 public record CatEtActivationEventDto(int Id, int CatEtLicenseId, string EventType, string? Notes, DateTime OccurredAtUtc);
+public record CatEtActivationActivityRowDto(
+    int EventId,
+    int CatEtLicenseId,
+    string SerialNumber,
+    string EventType,
+    string? Notes,
+    DateTime OccurredAtUtc,
+    string? Hostname,
+    string? AssetTag,
+    string? TrackedPersonName);

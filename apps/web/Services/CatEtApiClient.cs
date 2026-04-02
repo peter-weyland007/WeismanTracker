@@ -119,6 +119,9 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     public async Task<IReadOnlyList<CatEtActivationEventDto>> GetLicenseEventsAsync(int id)
         => await _http.GetFromJsonAsync<List<CatEtActivationEventDto>>($"/api/catet/licenses/{id}/events") ?? [];
 
+    public async Task<IReadOnlyList<CatEtActivationActivityRowDto>> GetActivityEventsAsync()
+        => await _http.GetFromJsonAsync<List<CatEtActivationActivityRowDto>>("/api/catet/activity") ?? [];
+
     public async Task<(bool Success, string? Error)> ResetActivationAsync(int id, ResetActivationRequest request)
     {
         var response = await _http.PostAsJsonAsync($"/api/catet/licenses/{id}/reset", request);
