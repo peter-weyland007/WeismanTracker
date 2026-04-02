@@ -24,11 +24,17 @@ fi
 mkdir -p /app/data
 
 echo "Starting API on :${API_PORT}"
-dotnet /app/api/api.dll --urls "http://0.0.0.0:${API_PORT}" &
+(
+  cd /app/api
+  dotnet api.dll --urls "http://0.0.0.0:${API_PORT}"
+) &
 API_PID=$!
 
 echo "Starting Web on :${WEB_PORT} (API=${WeismanApi__BaseUrl})"
-dotnet /app/web/web.dll --urls "http://0.0.0.0:${WEB_PORT}" &
+(
+  cd /app/web
+  dotnet web.dll --urls "http://0.0.0.0:${WEB_PORT}"
+) &
 WEB_PID=$!
 
 cleanup() {
