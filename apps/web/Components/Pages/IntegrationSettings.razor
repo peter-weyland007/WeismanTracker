@@ -1,0 +1,417 @@
+@page "/settings/integrations"
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Integration Settings</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Integration Settings</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex align-center mb-3">
+        <MudText Typo="Typo.h6" Class="mb-0">Sync Status</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="RefreshSyncStatusAsync" Disabled="_isRefreshingStatus">
+            Refresh
+        </MudButton>
+    </div>
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-3" Elevation="0">
+                <MudText Typo="Typo.subtitle1">@_ninjaStatus.Target</MudText>
+                <MudChip T="string" Color="@GetStatusColor(_ninjaStatus)" Variant="Variant.Outlined" Size="Size.Small" Class="mb-1">
+                    @GetStatusLabel(_ninjaStatus)
+                </MudChip>
+                <MudText Typo="Typo.body2">Seen/Matched: @_ninjaStatus.LastSeenCount/@_ninjaStatus.LastMatchedCount</MudText>
+                <MudText Typo="Typo.caption">Started: @FormatUtc(_ninjaStatus.LastRunStartedAtUtc)</MudText>
+                <MudText Typo="Typo.caption">Completed: @FormatUtc(_ninjaStatus.LastRunCompletedAtUtc)</MudText>
+                <MudText Typo="Typo.caption">Last success: @FormatUtc(_ninjaStatus.LastSuccessAtUtc)</MudText>
+                @if (!string.IsNullOrWhiteSpace(_ninjaStatus.LastMessage))
+                {
+                    <MudText Typo="Typo.caption">@_ninjaStatus.LastMessage</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-3" Elevation="0">
+                <MudText Typo="Typo.subtitle1">@_microsoftStatus.Target</MudText>
+                <MudChip T="string" Color="@GetStatusColor(_microsoftStatus)" Variant="Variant.Outlined" Size="Size.Small" Class="mb-1">
+                    @GetStatusLabel(_microsoftStatus)
+                </MudChip>
+                <MudText Typo="Typo.body2">Seen/Matched: @_microsoftStatus.LastSeenCount/@_microsoftStatus.LastMatchedCount</MudText>
+                <MudText Typo="Typo.caption">Started: @FormatUtc(_microsoftStatus.LastRunStartedAtUtc)</MudText>
+                <MudText Typo="Typo.caption">Completed: @FormatUtc(_microsoftStatus.LastRunCompletedAtUtc)</MudText>
+                <MudText Typo="Typo.caption">Last success: @FormatUtc(_microsoftStatus.LastSuccessAtUtc)</MudText>
+                @if (!string.IsNullOrWhiteSpace(_microsoftStatus.LastMessage))
+                {
+                    <MudText Typo="Typo.caption">@_microsoftStatus.LastMessage</MudText>
+                }
+
+                @if (_microsoftStatus.Sources.Count > 0)
+                {
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.caption" Class="mb-1">Source breakdown</MudText>
+                    <MudStack Spacing="1">
+                        @foreach (var source in _microsoftStatus.Sources)
+                        {
+                            <div class="d-flex align-center ga-2">
+                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" Color="@GetSourceStatusColor(source.Status)">@source.Status</MudChip>
+                                <MudText Typo="Typo.caption">@source.Source</MudText>
+                                <MudText Typo="Typo.caption">@($"Seen/Matched: {source.SeenCount}/{source.MatchedCount}")</MudText>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(source.Message))
+                            {
+                                <MudText Typo="Typo.caption" Class="ps-2">@source.Message</MudText>
+                            }
+                        }
+                    </MudStack>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex align-center mb-3">
+        <MudText Typo="Typo.h6" Class="mb-0 me-1">Ninja RMM</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Info" Size="Size.Small" aria-label="Ninja setup help" OnClick="ShowNinjaSetupHelpAsync" />
+    </div>
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_ninjaBaseUrl" Label="Base URL" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_ninjaClientId" Label="Client ID" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_ninjaClientSecret" Label="Client Secret (leave blank to keep existing)" Variant="Variant.Outlined" InputType="InputType.Password" />
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Stored secret exists: @(_ninjaHasSecret ? "Yes" : "No")</MudText>
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudTextField @bind-Value="_ninjaScope" Label="Scope" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudTextField @bind-Value="_ninjaTokenPath" Label="Token Path" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudTextField @bind-Value="_ninjaDevicesPath" Label="Devices Path" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudNumericField @bind-Value="_ninjaPageSize" Label="Page Size" Variant="Variant.Outlined" Min="1" Max="5000" />
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-end ga-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveNinjaAsync" Disabled="_isSaving">Save Ninja</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" OnClick="SyncNinjaNowAsync" Disabled="_isSyncingNinja">Sync Now</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex align-center mb-3">
+        <MudText Typo="Typo.h6" Class="mb-0 me-1">Microsoft Graph / Azure</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Info" Size="Size.Small" aria-label="Microsoft Graph and Azure setup help" OnClick="ShowAzureSetupHelpAsync" />
+    </div>
+    <MudGrid>
+        <MudItem xs="12" md="4">
+            <MudTextField @bind-Value="_graphTenantId" Label="Tenant ID" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudTextField @bind-Value="_graphClientId" Label="Client ID" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudTextField @bind-Value="_graphClientSecret" Label="Client Secret (leave blank to keep existing)" Variant="Variant.Outlined" InputType="InputType.Password" />
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Stored secret exists: @(_graphHasSecret ? "Yes" : "No")</MudText>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_graphBaseUrl" Label="Graph Base URL" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_armBaseUrl" Label="Azure Resource Manager Base URL" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudNumericField @bind-Value="_graphPageSize" Label="Page Size" Variant="Variant.Outlined" Min="1" Max="5000" />
+        </MudItem>
+        <MudItem xs="12" md="9">
+            <MudTextField @bind-Value="_azureSubscriptionIdsCsv" Label="Azure Subscription IDs (comma-separated)" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-end ga-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveGraphAsync" Disabled="_isSaving">Save Microsoft</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" OnClick="SyncMicrosoftNowAsync" Disabled="_isSyncingMicrosoft">Sync Now</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_helpOpen)
+{
+    <MudOverlay Visible="true" DarkBackground="true" />
+    <MudPaper Class="pa-4"
+              Style="position: fixed; z-index: 1500; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(92vw, 760px); max-height: 80vh; overflow-y: auto;">
+        <div class="d-flex align-center mb-2">
+            <MudText Typo="Typo.h6">@_helpTitle</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="CloseHelp" />
+        </div>
+
+        <MudList T="string" Dense="true">
+            @for (var i = 0; i < _helpSteps.Count; i++)
+            {
+                var index = i;
+                <MudListItem T="string">
+                    <MudText>@($"{index + 1}) {_helpSteps[index]}")</MudText>
+                </MudListItem>
+            }
+        </MudList>
+
+        @if (!string.IsNullOrWhiteSpace(_helpNote))
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">@_helpNote</MudAlert>
+        }
+
+        <div class="d-flex justify-end mt-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CloseHelp">Close</MudButton>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    private bool _isSaving;
+    private bool _isSyncingNinja;
+    private bool _isSyncingMicrosoft;
+    private bool _isRefreshingStatus;
+
+    private bool _helpOpen;
+    private string _helpTitle = string.Empty;
+    private List<string> _helpSteps = [];
+    private string? _helpNote;
+
+    private string _ninjaBaseUrl = string.Empty;
+    private string _ninjaClientId = string.Empty;
+    private string _ninjaClientSecret = string.Empty;
+    private bool _ninjaHasSecret;
+    private string _ninjaScope = "monitoring";
+    private string _ninjaTokenPath = "/ws/oauth/token";
+    private string _ninjaDevicesPath = "/v2/devices";
+    private int _ninjaPageSize = 200;
+
+    private string _graphTenantId = string.Empty;
+    private string _graphClientId = string.Empty;
+    private string _graphClientSecret = string.Empty;
+    private bool _graphHasSecret;
+    private string _graphBaseUrl = "https://graph.microsoft.com";
+    private string _armBaseUrl = "https://management.azure.com";
+    private int _graphPageSize = 999;
+    private string _azureSubscriptionIdsCsv = string.Empty;
+
+    private IntegrationSyncStatusDto _ninjaStatus = new("Ninja", false, "Never", null, null, null, 0, 0, null, null, []);
+    private IntegrationSyncStatusDto _microsoftStatus = new("Microsoft", false, "Never", null, null, null, 0, 0, null, null, []);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        await RefreshSyncStatusAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var settings = await Api.GetIntegrationSettingsAsync();
+
+        _ninjaBaseUrl = settings.Ninja.BaseUrl;
+        _ninjaClientId = settings.Ninja.ClientId;
+        _ninjaHasSecret = settings.Ninja.HasClientSecret;
+        _ninjaScope = settings.Ninja.Scope;
+        _ninjaTokenPath = settings.Ninja.TokenPath;
+        _ninjaDevicesPath = settings.Ninja.DevicesPath;
+        _ninjaPageSize = settings.Ninja.PageSize;
+        _ninjaClientSecret = string.Empty;
+
+        _graphTenantId = settings.MicrosoftGraph.TenantId;
+        _graphClientId = settings.MicrosoftGraph.ClientId;
+        _graphHasSecret = settings.MicrosoftGraph.HasClientSecret;
+        _graphBaseUrl = settings.MicrosoftGraph.GraphBaseUrl;
+        _armBaseUrl = settings.MicrosoftGraph.ResourceManagerBaseUrl;
+        _graphPageSize = settings.MicrosoftGraph.PageSize;
+        _azureSubscriptionIdsCsv = string.Join(",", settings.MicrosoftGraph.AzureSubscriptionIds);
+        _graphClientSecret = string.Empty;
+    }
+
+    private async Task RefreshSyncStatusAsync()
+    {
+        _isRefreshingStatus = true;
+        var snapshot = await Api.GetIntegrationSyncStatusAsync();
+        _ninjaStatus = snapshot.Ninja;
+        _microsoftStatus = snapshot.Microsoft;
+        _isRefreshingStatus = false;
+    }
+
+    private async Task SaveNinjaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_ninjaBaseUrl) || string.IsNullOrWhiteSpace(_ninjaClientId))
+        {
+            Snackbar.Add("Ninja Base URL and Client ID are required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.SaveNinjaIntegrationSettingsAsync(new UpdateNinjaIntegrationConfigRequest(
+            _ninjaBaseUrl.Trim(),
+            _ninjaClientId.Trim(),
+            string.IsNullOrWhiteSpace(_ninjaClientSecret) ? null : _ninjaClientSecret.Trim(),
+            string.IsNullOrWhiteSpace(_ninjaScope) ? "monitoring" : _ninjaScope.Trim(),
+            string.IsNullOrWhiteSpace(_ninjaTokenPath) ? "/ws/oauth/token" : _ninjaTokenPath.Trim(),
+            string.IsNullOrWhiteSpace(_ninjaDevicesPath) ? "/v2/devices" : _ninjaDevicesPath.Trim(),
+            _ninjaPageSize <= 0 ? 200 : _ninjaPageSize));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to save Ninja settings.", Severity.Error);
+            return;
+        }
+
+        await LoadAsync();
+        Snackbar.Add("Ninja settings saved.", Severity.Success);
+    }
+
+    private async Task SaveGraphAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_graphTenantId) || string.IsNullOrWhiteSpace(_graphClientId))
+        {
+            Snackbar.Add("Microsoft Tenant ID and Client ID are required.", Severity.Warning);
+            return;
+        }
+
+        var subscriptions = _azureSubscriptionIdsCsv
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _isSaving = true;
+        var (success, error) = await Api.SaveMicrosoftGraphIntegrationSettingsAsync(new UpdateMicrosoftGraphIntegrationConfigRequest(
+            _graphTenantId.Trim(),
+            _graphClientId.Trim(),
+            string.IsNullOrWhiteSpace(_graphClientSecret) ? null : _graphClientSecret.Trim(),
+            string.IsNullOrWhiteSpace(_graphBaseUrl) ? "https://graph.microsoft.com" : _graphBaseUrl.Trim(),
+            string.IsNullOrWhiteSpace(_armBaseUrl) ? "https://management.azure.com" : _armBaseUrl.Trim(),
+            _graphPageSize <= 0 ? 999 : _graphPageSize,
+            subscriptions));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to save Microsoft settings.", Severity.Error);
+            return;
+        }
+
+        await LoadAsync();
+        Snackbar.Add("Microsoft settings saved.", Severity.Success);
+    }
+
+    private async Task SyncNinjaNowAsync()
+    {
+        _isSyncingNinja = true;
+        var (success, result, error) = await Api.TriggerNinjaSyncNowAsync();
+        _isSyncingNinja = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to start Ninja sync.", Severity.Error);
+            await RefreshSyncStatusAsync();
+            return;
+        }
+
+        Snackbar.Add(result is null ? "Ninja sync completed." : result.Message, Severity.Success);
+        await RefreshSyncStatusAsync();
+    }
+
+    private async Task SyncMicrosoftNowAsync()
+    {
+        _isSyncingMicrosoft = true;
+        var (success, result, error) = await Api.TriggerMicrosoftSyncNowAsync();
+        _isSyncingMicrosoft = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to start Microsoft sync.", Severity.Error);
+            await RefreshSyncStatusAsync();
+            return;
+        }
+
+        Snackbar.Add(result is null ? "Microsoft sync completed." : result.Message, Severity.Success);
+        await RefreshSyncStatusAsync();
+    }
+
+    private static string FormatUtc(DateTime? value)
+        => value is null ? "—" : value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+
+    private static Color GetStatusColor(IntegrationSyncStatusDto status)
+    {
+        if (status.IsRunning)
+        {
+            return Color.Info;
+        }
+
+        return status.LastStatus.ToLowerInvariant() switch
+        {
+            "success" => Color.Success,
+            "failed" => Color.Error,
+            _ => Color.Default
+        };
+    }
+
+    private static string GetStatusLabel(IntegrationSyncStatusDto status)
+        => status.IsRunning ? "Running" : status.LastStatus;
+
+    private static Color GetSourceStatusColor(string status)
+        => status.ToLowerInvariant() switch
+        {
+            "success" => Color.Success,
+            "failed" => Color.Error,
+            "skipped" => Color.Warning,
+            "running" => Color.Info,
+            _ => Color.Default
+        };
+
+    private Task ShowNinjaSetupHelpAsync()
+    {
+        _helpTitle = "Ninja Integration Setup";
+        _helpSteps =
+        [
+            "In Ninja, create a new client app and choose API Services (machine-to-machine).",
+            "Set a friendly app name like WeismanTracker API Import.",
+            "Enable grant type: Client credentials.",
+            "Enable scope: Monitoring (add others only if needed).",
+            "Copy Client ID and Client Secret into this Ninja form.",
+            "Use Base URL for your Ninja tenant API endpoint (for many tenants this is https://app.ninjarmm.com).",
+            "Save settings, then click Sync Now to import immediately."
+        ];
+        _helpNote = "Client Secret can be left blank on future edits to keep the existing secret.";
+        _helpOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task ShowAzureSetupHelpAsync()
+    {
+        _helpTitle = "Microsoft Graph / Azure Setup";
+        _helpSteps =
+        [
+            "In Entra ID, create an App Registration for WeismanTracker.",
+            "Create a Client Secret and copy it now (you can’t retrieve it later).",
+            "Grant application permissions: User.Read.All, Device.Read.All, DeviceManagementManagedDevices.Read.All.",
+            "Grant admin consent for those permissions.",
+            "Paste Tenant ID, Client ID, and Client Secret in this form.",
+            "Save settings, then click Sync Now to import users/devices immediately."
+        ];
+        _helpNote = "Subscription IDs are optional if you do not need Azure VM import.";
+        _helpOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private void CloseHelp()
+    {
+        _helpOpen = false;
+        _helpTitle = string.Empty;
+        _helpSteps = [];
+        _helpNote = null;
+    }
+}

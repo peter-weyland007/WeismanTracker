@@ -1,0 +1,34 @@
+<MudDialog>
+    <DialogContent>
+        <MudList T="string" Dense="true">
+            @for (var i = 0; i < Instructions.Count; i++)
+            {
+                var index = i;
+                var step = Instructions[index];
+                <MudListItem T="string">
+                    <MudText>@($"{index + 1}) {step}")</MudText>
+                </MudListItem>
+            }
+        </MudList>
+
+        @if (!string.IsNullOrWhiteSpace(FooterNote))
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">@FooterNote</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyList<string> Instructions { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string? FooterNote { get; set; }
+
+    private void Close() => MudDialog.Close();
+}

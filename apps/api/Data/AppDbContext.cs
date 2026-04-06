@@ -10,6 +10,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TrackedComputer> TrackedComputers => Set<TrackedComputer>();
     public DbSet<CatEtLicense> CatEtLicenses => Set<CatEtLicense>();
     public DbSet<CatEtActivationEvent> CatEtActivationEvents => Set<CatEtActivationEvent>();
+    public DbSet<ResourceDefinition> ResourceDefinitions => Set<ResourceDefinition>();
+    public DbSet<EntityReference> EntityReferences => Set<EntityReference>();
+    public DbSet<IntegrationProviderConfig> IntegrationProviderConfigs => Set<IntegrationProviderConfig>();
+    public DbSet<IntegrationSyncStatus> IntegrationSyncStatuses => Set<IntegrationSyncStatus>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,5 +54,33 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .WithMany(l => l.ActivationEvents)
             .HasForeignKey(e => e.CatEtLicenseId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ResourceDefinition>()
+            .HasIndex(x => new { x.EntityType, x.Provider, x.ResourceType })
+            .IsUnique();
+
+        modelBuilder.Entity<EntityReference>()
+            .HasOne(x => x.ResourceDefinition)
+            .WithMany(x => x.EntityReferences)
+            .HasForeignKey(x => x.ResourceDefinitionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<EntityReference>()
+            .HasIndex(x => new { x.EntityType, x.EntityId });
+
+        modelBuilder.Entity<EntityReference>()
+            .HasIndex(x => new { x.ResourceDefinitionId, x.ExternalKey });
+
+        modelBuilder.Entity<EntityReference>()
+            .HasIndex(x => new { x.EntityType, x.EntityId, x.ResourceDefinitionId, x.ExternalId })
+            .IsUnique();
+
+        modelBuilder.Entity<IntegrationProviderConfig>()
+            .HasIndex(x => x.Provider)
+            .IsUnique();
+
+        modelBuilder.Entity<IntegrationSyncStatus>()
+            .HasIndex(x => x.SyncTarget)
+            .IsUnique();
     }
 }

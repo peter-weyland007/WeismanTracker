@@ -1,9 +1,12 @@
 using System.Data;
+using System.Data.Common;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using api.Contracts;
 using api.Data;
+using api.Integrations;
 using api.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,6 +15,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
+
+builder.Services.Configure<IntegrationSyncOptions>(builder.Configuration.GetSection("IntegrationSync"));
+builder.Services.Configure<NinjaOptions>(builder.Configuration.GetSection("Integrations:Ninja"));
+builder.Services.Configure<MicrosoftGraphOptions>(builder.Configuration.GetSection("Integrations:MicrosoftGraph"));
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IReferenceMatchService, ReferenceMatchService>();
+builder.Services.AddSingleton<INinjaClient, NinjaClient>();
+builder.Services.AddSingleton<IMicrosoftGraphClient, MicrosoftGraphClient>();
+builder.Services.AddSingleton<ResourceSyncBackgroundService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ResourceSyncBackgroundService>());
 
 var app = builder.Build();
 
@@ -32,6 +45,9 @@ using (var scope = app.Services.CreateScope())
     EnsureTrackedComputerPersonNullable(db);
     EnsureCatEtLicenseComputerNullable(db);
     EnsureSoftDeleteColumns(db);
+    EnsureEntityResourceCoverageSchema(db);
+    EnsureIntegrationProviderConfigSchema(db);
+    EnsureIntegrationSyncStatusSchema(db);
 
     if (!db.Users.Any())
     {
@@ -76,15 +92,399 @@ app.MapGet("/api/users", (AppDbContext db) =>
     return Results.Ok(users);
 });
 
-app.MapGet("/api/catet/people", async (AppDbContext db) =>
+app.MapGet("/api/resource-definitions", async (string? entityType, AppDbContext db) =>
 {
-    var people = await db.TrackedPeople
-        .Where(p => p.DeletedAtUtc == null)
-        .OrderBy(p => p.FullName)
+    var query = db.ResourceDefinitions.AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(entityType))
+    {
+        if (!TryParseResourceEntityType(entityType, out var parsedEntityType))
+        {
+            return Results.BadRequest(new { message = "entityType must be user|users|computer|computers" });
+        }
+
+        query = query.Where(x => x.EntityType == parsedEntityType);
+    }
+
+    var definitionRows = await query
+        .OrderBy(x => x.EntityType)
+        .ThenBy(x => x.Provider)
+        .ThenBy(x => x.ResourceType)
+        .ToListAsync();
+
+    var definitions = definitionRows
+        .Select(x => new ResourceDefinitionDto(
+            x.Id,
+            ToDtoEntityType(x.EntityType),
+            x.Provider,
+            x.ResourceType,
+            x.DisplayName,
+            x.IsEnabled))
+        .ToList();
+
+    return Results.Ok(definitions);
+});
+
+app.MapGet("/api/entities/{entityType}/{entityId:int}/resource-coverage", async (string entityType, int entityId, AppDbContext db) =>
+{
+    if (!TryParseResourceEntityType(entityType, out var parsedEntityType))
+    {
+        return Results.BadRequest(new { message = "entityType must be users|computers" });
+    }
+
+    var definitions = await db.ResourceDefinitions
+        .Where(x => x.EntityType == parsedEntityType && x.IsEnabled)
+        .OrderBy(x => x.Provider)
+        .ThenBy(x => x.ResourceType)
+        .ToListAsync();
+
+    var references = await db.EntityReferences
+        .Where(x => x.EntityType == parsedEntityType && x.EntityId == entityId)
+        .ToListAsync();
+
+    var refsByDefinition = references
+        .GroupBy(x => x.ResourceDefinitionId)
+        .ToDictionary(g => g.Key, g => g.First());
+
+    var rows = definitions.Select(d =>
+    {
+        refsByDefinition.TryGetValue(d.Id, out var reference);
+        var linked = reference is not null && reference.SyncStatus != ReferenceSyncStatus.Missing;
+
+        return new ResourceCoverageRowDto(
+            d.Id,
+            d.Provider,
+            d.ResourceType,
+            d.DisplayName,
+            Possible: true,
+            Linked: linked,
+            ExternalId: reference?.ExternalId,
+            ExternalKey: reference?.ExternalKey,
+            SyncStatus: reference is null ? null : ToDtoReferenceStatus(reference.SyncStatus),
+            LastSyncedAtUtc: reference?.LastSyncedAtUtc);
+    }).ToList();
+
+    var response = new GetEntityResourceCoverageResponseDto(
+        ToDtoEntityType(parsedEntityType),
+        entityId,
+        rows);
+
+    return Results.Ok(response);
+});
+
+app.MapPost("/api/entities/{entityType}/{entityId:int}/references/reconcile", async (string entityType, int entityId, ReconcileEntityReferencesRequestDto request, AppDbContext db) =>
+{
+    if (!TryParseResourceEntityType(entityType, out var parsedEntityType))
+    {
+        return Results.BadRequest(new { message = "entityType must be users|computers" });
+    }
+
+    var now = DateTime.UtcNow;
+    var upserts = request.Upserts ?? [];
+    var removes = request.Removes ?? [];
+
+    var warnings = new List<string>();
+    var upserted = 0;
+    var removed = 0;
+    var markedStale = 0;
+
+    var validDefinitionIds = await db.ResourceDefinitions
+        .Where(x => x.EntityType == parsedEntityType)
+        .Select(x => x.Id)
+        .ToListAsync();
+
+    var validDefinitionIdSet = validDefinitionIds.ToHashSet();
+
+    foreach (var upsert in upserts)
+    {
+        if (!validDefinitionIdSet.Contains(upsert.ResourceDefinitionId))
+        {
+            warnings.Add($"Unknown ResourceDefinitionId for entity type: {upsert.ResourceDefinitionId}");
+            continue;
+        }
+
+        if (string.IsNullOrWhiteSpace(upsert.ExternalId))
+        {
+            warnings.Add($"Skipped upsert with blank ExternalId for definition {upsert.ResourceDefinitionId}");
+            continue;
+        }
+
+        var externalId = upsert.ExternalId.Trim();
+        var externalKey = string.IsNullOrWhiteSpace(upsert.ExternalKey) ? null : upsert.ExternalKey.Trim();
+
+        var existing = await db.EntityReferences.FirstOrDefaultAsync(x =>
+            x.EntityType == parsedEntityType &&
+            x.EntityId == entityId &&
+            x.ResourceDefinitionId == upsert.ResourceDefinitionId &&
+            x.ExternalId == externalId);
+
+        if (existing is null)
+        {
+            existing = new EntityReference
+            {
+                EntityType = parsedEntityType,
+                EntityId = entityId,
+                ResourceDefinitionId = upsert.ResourceDefinitionId,
+                ExternalId = externalId,
+                ExternalKey = externalKey,
+                SyncStatus = ReferenceSyncStatus.Linked,
+                FirstLinkedAtUtc = now,
+                LastSeenAtUtc = now,
+                LastSyncedAtUtc = now,
+                MetadataJson = upsert.Metadata is null ? null : JsonSerializer.Serialize(upsert.Metadata)
+            };
+
+            db.EntityReferences.Add(existing);
+        }
+        else
+        {
+            existing.ExternalKey = externalKey;
+            existing.SyncStatus = ReferenceSyncStatus.Linked;
+            existing.LastSeenAtUtc = now;
+            existing.LastSyncedAtUtc = now;
+
+            if (upsert.Metadata is not null)
+            {
+                existing.MetadataJson = JsonSerializer.Serialize(upsert.Metadata);
+            }
+        }
+
+        upserted++;
+    }
+
+    foreach (var remove in removes)
+    {
+        var existing = await db.EntityReferences.FirstOrDefaultAsync(x =>
+            x.EntityType == parsedEntityType &&
+            x.EntityId == entityId &&
+            x.ResourceDefinitionId == remove.ResourceDefinitionId &&
+            x.ExternalId == remove.ExternalId);
+
+        if (existing is null)
+        {
+            continue;
+        }
+
+        db.EntityReferences.Remove(existing);
+        removed++;
+    }
+
+    if (request.MarkMissingAsStale && upserts.Count > 0)
+    {
+        var keepSet = upserts
+            .Where(x => !string.IsNullOrWhiteSpace(x.ExternalId))
+            .Select(x => $"{x.ResourceDefinitionId}:{x.ExternalId.Trim()}".ToLowerInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var existingRows = await db.EntityReferences
+            .Where(x => x.EntityType == parsedEntityType && x.EntityId == entityId)
+            .ToListAsync();
+
+        foreach (var row in existingRows)
+        {
+            var key = $"{row.ResourceDefinitionId}:{row.ExternalId}".ToLowerInvariant();
+            if (!keepSet.Contains(key) && row.SyncStatus == ReferenceSyncStatus.Linked)
+            {
+                row.SyncStatus = ReferenceSyncStatus.Stale;
+                row.LastSyncedAtUtc = now;
+                markedStale++;
+            }
+        }
+    }
+
+    await db.SaveChangesAsync();
+
+    var response = new ReconcileEntityReferencesResponseDto(
+        Upserted: upserted,
+        Removed: removed,
+        MarkedStale: markedStale,
+        Warnings: warnings);
+
+    return Results.Ok(response);
+});
+
+app.MapGet("/api/integrations/settings", async (AppDbContext db) =>
+{
+    var ninjaConfig = await db.IntegrationProviderConfigs.AsNoTracking().FirstOrDefaultAsync(x => x.Provider == "Ninja");
+    var graphConfig = await db.IntegrationProviderConfigs.AsNoTracking().FirstOrDefaultAsync(x => x.Provider == "MicrosoftGraph");
+
+    var ninja = new NinjaIntegrationConfigDto(
+        BaseUrl: ninjaConfig?.BaseUrl ?? string.Empty,
+        ClientId: ninjaConfig?.ClientId ?? string.Empty,
+        HasClientSecret: !string.IsNullOrWhiteSpace(ninjaConfig?.ClientSecret),
+        Scope: ninjaConfig?.Scope ?? "monitoring",
+        TokenPath: ninjaConfig?.TokenPath ?? "/ws/oauth/token",
+        DevicesPath: ninjaConfig?.DevicesPath ?? "/v2/devices",
+        PageSize: ninjaConfig?.PageSize is > 0 ? ninjaConfig.PageSize.Value : 200);
+
+    var azureSubs = string.IsNullOrWhiteSpace(graphConfig?.AzureSubscriptionIdsCsv)
+        ? []
+        : graphConfig.AzureSubscriptionIdsCsv
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    var graph = new MicrosoftGraphIntegrationConfigDto(
+        TenantId: graphConfig?.TenantId ?? string.Empty,
+        ClientId: graphConfig?.ClientId ?? string.Empty,
+        HasClientSecret: !string.IsNullOrWhiteSpace(graphConfig?.ClientSecret),
+        GraphBaseUrl: graphConfig?.BaseUrl ?? "https://graph.microsoft.com",
+        ResourceManagerBaseUrl: graphConfig?.ResourceManagerBaseUrl ?? "https://management.azure.com",
+        PageSize: graphConfig?.PageSize is > 0 ? graphConfig.PageSize.Value : 999,
+        AzureSubscriptionIds: azureSubs);
+
+    return Results.Ok(new IntegrationSettingsDto(ninja, graph));
+});
+
+app.MapPut("/api/integrations/settings/ninja", async (UpdateNinjaIntegrationConfigRequest request, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.BaseUrl) || string.IsNullOrWhiteSpace(request.ClientId))
+    {
+        return Results.BadRequest(new { message = "BaseUrl and ClientId are required." });
+    }
+
+    if (request.PageSize <= 0)
+    {
+        return Results.BadRequest(new { message = "PageSize must be greater than 0." });
+    }
+
+    var config = await db.IntegrationProviderConfigs.FirstOrDefaultAsync(x => x.Provider == "Ninja");
+    if (config is null)
+    {
+        config = new IntegrationProviderConfig { Provider = "Ninja" };
+        db.IntegrationProviderConfigs.Add(config);
+    }
+
+    config.BaseUrl = request.BaseUrl.Trim();
+    config.ClientId = request.ClientId.Trim();
+    if (!string.IsNullOrWhiteSpace(request.ClientSecret))
+    {
+        config.ClientSecret = request.ClientSecret.Trim();
+    }
+
+    config.Scope = string.IsNullOrWhiteSpace(request.Scope) ? "monitoring" : request.Scope.Trim();
+    config.TokenPath = string.IsNullOrWhiteSpace(request.TokenPath) ? "/ws/oauth/token" : request.TokenPath.Trim();
+    config.DevicesPath = string.IsNullOrWhiteSpace(request.DevicesPath) ? "/v2/devices" : request.DevicesPath.Trim();
+    config.PageSize = request.PageSize;
+    config.UpdatedAtUtc = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { message = "Ninja settings saved." });
+});
+
+app.MapPut("/api/integrations/settings/microsoft-graph", async (UpdateMicrosoftGraphIntegrationConfigRequest request, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.ClientId))
+    {
+        return Results.BadRequest(new { message = "TenantId and ClientId are required." });
+    }
+
+    if (request.PageSize <= 0)
+    {
+        return Results.BadRequest(new { message = "PageSize must be greater than 0." });
+    }
+
+    var config = await db.IntegrationProviderConfigs.FirstOrDefaultAsync(x => x.Provider == "MicrosoftGraph");
+    if (config is null)
+    {
+        config = new IntegrationProviderConfig { Provider = "MicrosoftGraph" };
+        db.IntegrationProviderConfigs.Add(config);
+    }
+
+    config.TenantId = request.TenantId.Trim();
+    config.ClientId = request.ClientId.Trim();
+    if (!string.IsNullOrWhiteSpace(request.ClientSecret))
+    {
+        config.ClientSecret = request.ClientSecret.Trim();
+    }
+
+    config.BaseUrl = string.IsNullOrWhiteSpace(request.GraphBaseUrl) ? "https://graph.microsoft.com" : request.GraphBaseUrl.Trim();
+    config.ResourceManagerBaseUrl = string.IsNullOrWhiteSpace(request.ResourceManagerBaseUrl)
+        ? "https://management.azure.com"
+        : request.ResourceManagerBaseUrl.Trim();
+    config.PageSize = request.PageSize;
+
+    var subscriptions = request.AzureSubscriptionIds?
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Select(x => x.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList() ?? [];
+    config.AzureSubscriptionIdsCsv = subscriptions.Count == 0 ? null : string.Join(',', subscriptions);
+
+    config.UpdatedAtUtc = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { message = "Microsoft Graph settings saved." });
+});
+
+app.MapGet("/api/integrations/sync-status", async (ResourceSyncBackgroundService syncService, CancellationToken cancellationToken) =>
+{
+    var status = await syncService.GetSyncStatusSnapshotAsync(cancellationToken);
+    return Results.Ok(status);
+});
+
+app.MapPost("/api/integrations/sync-now/ninja", async (ResourceSyncBackgroundService syncService, CancellationToken cancellationToken) =>
+{
+    var result = await syncService.RunNinjaSyncNowAsync(cancellationToken);
+    return result.Success
+        ? Results.Ok(result)
+        : Results.Conflict(result);
+});
+
+app.MapPost("/api/integrations/sync-now/microsoft", async (ResourceSyncBackgroundService syncService, CancellationToken cancellationToken) =>
+{
+    var result = await syncService.RunMicrosoftSyncNowAsync(cancellationToken);
+    return result.Success
+        ? Results.Ok(result)
+        : Results.Conflict(result);
+});
+
+app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSize = 50, string? search = null, string? sortBy = null, string? sortDir = null, string? filter = null) =>
+{
+    var safePage = Math.Max(1, page);
+    var safePageSize = Math.Clamp(pageSize, 1, 500);
+    var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
+    var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+    var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "fullname" : sortBy.Trim().ToLowerInvariant();
+    var desc = string.Equals(sortDir?.Trim(), "desc", StringComparison.OrdinalIgnoreCase);
+
+    var query = db.TrackedPeople
+        .AsNoTracking()
+        .Where(p => p.DeletedAtUtc == null);
+
+    if (!string.IsNullOrWhiteSpace(searchTerm))
+    {
+        query = query.Where(p =>
+            p.FullName.ToLower().Contains(searchTerm)
+            || (p.Email != null && p.Email.ToLower().Contains(searchTerm)));
+    }
+
+    query = normalizedFilter switch
+    {
+        "withemail" => query.Where(p => p.Email != null && p.Email != ""),
+        "withoutemail" => query.Where(p => p.Email == null || p.Email == ""),
+        _ => query
+    };
+
+    query = (normalizedSortBy, desc) switch
+    {
+        ("email", false) => query.OrderBy(p => p.Email == null).ThenBy(p => p.Email).ThenBy(p => p.Id),
+        ("email", true) => query.OrderByDescending(p => p.Email == null).ThenByDescending(p => p.Email).ThenByDescending(p => p.Id),
+        ("createdat", false) => query.OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id),
+        ("createdat", true) => query.OrderByDescending(p => p.CreatedAtUtc).ThenByDescending(p => p.Id),
+        ("fullname", true) => query.OrderByDescending(p => p.FullName).ThenByDescending(p => p.Id),
+        _ => query.OrderBy(p => p.FullName).ThenBy(p => p.Id)
+    };
+
+    var totalCount = await query.CountAsync();
+    var people = await query
+        .Skip((safePage - 1) * safePageSize)
+        .Take(safePageSize)
         .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.CreatedAtUtc))
         .ToListAsync();
 
-    return Results.Ok(people);
+    return Results.Ok(new PagedResultDto<TrackedPersonDto>(people, totalCount, safePage, safePageSize));
 });
 
 app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppDbContext db) =>
@@ -162,12 +562,52 @@ app.MapDelete("/api/catet/people/{id:int}", async (int id, AppDbContext db) =>
     return Results.Ok();
 });
 
-app.MapGet("/api/catet/computers", async (AppDbContext db) =>
+app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pageSize = 50, string? search = null, string? sortBy = null, string? sortDir = null, string? filter = null) =>
 {
-    var computers = await db.TrackedComputers
+    var safePage = Math.Max(1, page);
+    var safePageSize = Math.Clamp(pageSize, 1, 500);
+    var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
+    var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+    var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "hostname" : sortBy.Trim().ToLowerInvariant();
+    var desc = string.Equals(sortDir?.Trim(), "desc", StringComparison.OrdinalIgnoreCase);
+
+    var query = db.TrackedComputers
+        .AsNoTracking()
         .Where(c => c.DeletedAtUtc == null)
         .Include(c => c.TrackedPerson)
-        .OrderBy(c => c.Hostname)
+        .AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(searchTerm))
+    {
+        query = query.Where(c =>
+            c.Hostname.ToLower().Contains(searchTerm)
+            || c.AssetTag.ToLower().Contains(searchTerm)
+            || (c.TrackedPerson != null && c.TrackedPerson.FullName.ToLower().Contains(searchTerm)));
+    }
+
+    query = normalizedFilter switch
+    {
+        "assigned" => query.Where(c => c.TrackedPersonId != null),
+        "unassigned" => query.Where(c => c.TrackedPersonId == null),
+        _ => query
+    };
+
+    query = (normalizedSortBy, desc) switch
+    {
+        ("assignee", false) => query.OrderBy(c => c.TrackedPerson == null).ThenBy(c => c.TrackedPerson != null ? c.TrackedPerson.FullName : string.Empty).ThenBy(c => c.Id),
+        ("assignee", true) => query.OrderByDescending(c => c.TrackedPerson == null).ThenByDescending(c => c.TrackedPerson != null ? c.TrackedPerson.FullName : string.Empty).ThenByDescending(c => c.Id),
+        ("assettag", false) => query.OrderBy(c => c.AssetTag).ThenBy(c => c.Id),
+        ("assettag", true) => query.OrderByDescending(c => c.AssetTag).ThenByDescending(c => c.Id),
+        ("createdat", false) => query.OrderBy(c => c.CreatedAtUtc).ThenBy(c => c.Id),
+        ("createdat", true) => query.OrderByDescending(c => c.CreatedAtUtc).ThenByDescending(c => c.Id),
+        ("hostname", true) => query.OrderByDescending(c => c.Hostname).ThenByDescending(c => c.Id),
+        _ => query.OrderBy(c => c.Hostname).ThenBy(c => c.Id)
+    };
+
+    var totalCount = await query.CountAsync();
+    var computers = await query
+        .Skip((safePage - 1) * safePageSize)
+        .Take(safePageSize)
         .Select(c => new TrackedComputerDto(
             c.Id,
             c.Hostname,
@@ -177,7 +617,7 @@ app.MapGet("/api/catet/computers", async (AppDbContext db) =>
             c.CreatedAtUtc))
         .ToListAsync();
 
-    return Results.Ok(computers);
+    return Results.Ok(new PagedResultDto<TrackedComputerDto>(computers, totalCount, safePage, safePageSize));
 });
 
 app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request, AppDbContext db) =>
@@ -929,6 +1369,188 @@ ALTER TABLE ""CatEtLicenses"" ADD COLUMN ""DeletedAtUtc"" TEXT NULL;";
 
     try { command.ExecuteNonQuery(); } catch { }
 }
+
+void EnsureEntityResourceCoverageSchema(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    using var schemaCommand = connection.CreateCommand();
+    schemaCommand.CommandText = @"
+CREATE TABLE IF NOT EXISTS ""ResourceDefinitions"" (
+    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_ResourceDefinitions"" PRIMARY KEY AUTOINCREMENT,
+    ""EntityType"" INTEGER NOT NULL,
+    ""Provider"" TEXT NOT NULL,
+    ""ResourceType"" TEXT NOT NULL,
+    ""DisplayName"" TEXT NOT NULL,
+    ""IsEnabled"" INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS ""EntityReferences"" (
+    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_EntityReferences"" PRIMARY KEY AUTOINCREMENT,
+    ""EntityType"" INTEGER NOT NULL,
+    ""EntityId"" INTEGER NOT NULL,
+    ""ResourceDefinitionId"" INTEGER NOT NULL,
+    ""ExternalId"" TEXT NOT NULL,
+    ""ExternalKey"" TEXT NULL,
+    ""SyncStatus"" INTEGER NOT NULL,
+    ""LastSyncedAtUtc"" TEXT NOT NULL,
+    ""FirstLinkedAtUtc"" TEXT NULL,
+    ""LastSeenAtUtc"" TEXT NULL,
+    ""MetadataJson"" TEXT NULL,
+    CONSTRAINT ""FK_EntityReferences_ResourceDefinitions_ResourceDefinitionId"" FOREIGN KEY (""ResourceDefinitionId"") REFERENCES ""ResourceDefinitions"" (""Id"") ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_ResourceDefinitions_EntityType_Provider_ResourceType""
+    ON ""ResourceDefinitions"" (""EntityType"", ""Provider"", ""ResourceType"");
+
+CREATE INDEX IF NOT EXISTS ""IX_EntityReferences_EntityType_EntityId""
+    ON ""EntityReferences"" (""EntityType"", ""EntityId"");
+
+CREATE INDEX IF NOT EXISTS ""IX_EntityReferences_ResourceDefinitionId_ExternalKey""
+    ON ""EntityReferences"" (""ResourceDefinitionId"", ""ExternalKey"");
+
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_EntityReferences_EntityType_EntityId_ResourceDefinitionId_ExternalId""
+    ON ""EntityReferences"" (""EntityType"", ""EntityId"", ""ResourceDefinitionId"", ""ExternalId"");
+";
+
+    schemaCommand.ExecuteNonQuery();
+
+    using var seedCommand = connection.CreateCommand();
+    seedCommand.CommandText = @"
+INSERT OR IGNORE INTO ""ResourceDefinitions"" (""EntityType"", ""Provider"", ""ResourceType"", ""DisplayName"", ""IsEnabled"") VALUES
+(1, 'MicrosoftGraph', 'User', 'Microsoft 365 User', 1),
+(2, 'NinjaRMM', 'Device', 'Ninja Device', 1),
+(2, 'MicrosoftGraph', 'Device', 'Entra Device', 1),
+(2, 'Intune', 'ManagedDevice', 'Intune Managed Device', 1),
+(2, 'Azure', 'VirtualMachine', 'Azure VM', 1);
+";
+    seedCommand.ExecuteNonQuery();
+}
+
+void EnsureIntegrationProviderConfigSchema(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    using var command = connection.CreateCommand();
+    command.CommandText = @"
+CREATE TABLE IF NOT EXISTS ""IntegrationProviderConfigs"" (
+    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_IntegrationProviderConfigs"" PRIMARY KEY AUTOINCREMENT,
+    ""Provider"" TEXT NOT NULL,
+    ""BaseUrl"" TEXT NULL,
+    ""TenantId"" TEXT NULL,
+    ""ClientId"" TEXT NULL,
+    ""ClientSecret"" TEXT NULL,
+    ""Scope"" TEXT NULL,
+    ""TokenPath"" TEXT NULL,
+    ""DevicesPath"" TEXT NULL,
+    ""PageSize"" INTEGER NULL,
+    ""ResourceManagerBaseUrl"" TEXT NULL,
+    ""AzureSubscriptionIdsCsv"" TEXT NULL,
+    ""UpdatedAtUtc"" TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_IntegrationProviderConfigs_Provider"" ON ""IntegrationProviderConfigs"" (""Provider"");
+";
+
+    command.ExecuteNonQuery();
+}
+
+void EnsureIntegrationSyncStatusSchema(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    using var command = connection.CreateCommand();
+    command.CommandText = @"
+CREATE TABLE IF NOT EXISTS ""IntegrationSyncStatuses"" (
+    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_IntegrationSyncStatuses"" PRIMARY KEY AUTOINCREMENT,
+    ""SyncTarget"" TEXT NOT NULL,
+    ""IsRunning"" INTEGER NOT NULL DEFAULT 0,
+    ""LastStatus"" TEXT NOT NULL,
+    ""LastRunStartedAtUtc"" TEXT NULL,
+    ""LastRunCompletedAtUtc"" TEXT NULL,
+    ""LastSuccessAtUtc"" TEXT NULL,
+    ""LastSeenCount"" INTEGER NOT NULL DEFAULT 0,
+    ""LastMatchedCount"" INTEGER NOT NULL DEFAULT 0,
+    ""LastMessage"" TEXT NULL,
+    ""LastTriggeredBy"" TEXT NULL,
+    ""LastDetailsJson"" TEXT NULL,
+    ""UpdatedAtUtc"" TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_IntegrationSyncStatuses_SyncTarget"" ON ""IntegrationSyncStatuses"" (""SyncTarget"");
+";
+
+    command.ExecuteNonQuery();
+
+    if (!TableColumnExists(connection, "IntegrationSyncStatuses", "LastDetailsJson"))
+    {
+        using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"IntegrationSyncStatuses\" ADD COLUMN \"LastDetailsJson\" TEXT NULL;";
+        alterCommand.ExecuteNonQuery();
+    }
+}
+
+bool TableColumnExists(DbConnection connection, string tableName, string columnName)
+{
+    using var pragma = connection.CreateCommand();
+    pragma.CommandText = $"PRAGMA table_info(\"{tableName.Replace("\"", "\"\"")}\")";
+
+    using var reader = pragma.ExecuteReader();
+    while (reader.Read())
+    {
+        var current = reader[1]?.ToString();
+        if (string.Equals(current, columnName, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool TryParseResourceEntityType(string value, out ResourceEntityType entityType)
+{
+    switch (value.Trim().ToLowerInvariant())
+    {
+        case "user":
+        case "users":
+            entityType = ResourceEntityType.User;
+            return true;
+        case "computer":
+        case "computers":
+            entityType = ResourceEntityType.Computer;
+            return true;
+        default:
+            entityType = default;
+            return false;
+    }
+}
+
+ResourceEntityTypeDto ToDtoEntityType(ResourceEntityType entityType)
+    => entityType == ResourceEntityType.User ? ResourceEntityTypeDto.User : ResourceEntityTypeDto.Computer;
+
+ReferenceStatusDto ToDtoReferenceStatus(ReferenceSyncStatus status)
+    => status switch
+    {
+        ReferenceSyncStatus.Linked => ReferenceStatusDto.Linked,
+        ReferenceSyncStatus.Stale => ReferenceStatusDto.Stale,
+        ReferenceSyncStatus.Missing => ReferenceStatusDto.Missing,
+        ReferenceSyncStatus.Error => ReferenceStatusDto.Error,
+        _ => ReferenceStatusDto.Error
+    };
 
 string NormalizeSerialNumber(string input)
     => new string(input.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());

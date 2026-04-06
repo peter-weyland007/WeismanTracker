@@ -60,12 +60,44 @@
 }
 
 <MudPaper Class="pa-2" Elevation="1">
-    <MudTable Items="_computers" Hover="true" Dense="true" Loading="_isLoading">
+    <MudGrid Class="pa-2">
+        <MudItem xs="12" md="8">
+            <MudTextField @bind-Value="_searchText"
+                          Placeholder="Search hostname, asset tag, or assigned user"
+                          Variant="Variant.Outlined"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          OnDebounceIntervalElapsed="OnSearchDebounced"
+                          DebounceInterval="350" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="string"
+                       Value="_assignmentFilter"
+                       ValueChanged="OnAssignmentFilterChanged"
+                       Label="Assignment filter"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                <MudSelectItem Value='@("all")'>All computers</MudSelectItem>
+                <MudSelectItem Value='@("assigned")'>Assigned only</MudSelectItem>
+                <MudSelectItem Value='@("unassigned")'>Unassigned only</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+    <MudTable T="TrackedComputerDto"
+              @ref="_computersTable"
+              ServerData="LoadComputersServerData"
+              Hover="true"
+              Dense="true"
+              Loading="_isLoading"
+              RowsPerPage="25"
+              RowsPerPageChanged="OnRowsPerPageChanged">
         <HeaderContent>
-            <MudTh>Hostname</MudTh>
-            <MudTh>Asset Tag</MudTh>
-            <MudTh>Assigned User</MudTh>
-            <MudTh>Created (UTC)</MudTh>
+            <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="hostname">Hostname</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="assetTag">Asset Tag</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="assignee">Assigned User</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="createdAt">Created (UTC)</MudTableSortLabel></MudTh>
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
@@ -79,16 +111,25 @@
             </MudTd>
         </RowTemplate>
         <NoRecordsContent>
-            <MudText Class="pa-4">No computers yet.</MudText>
+            <MudText Class="pa-4">No computers found.</MudText>
         </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager RowsPerPageString="Rows per page"
+                           InfoFormat="{first_item}-{last_item} of {all_items}"
+                           PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+        </PagerContent>
     </MudTable>
 </MudPaper>
 
 @code {
-    private List<TrackedComputerDto> _computers = [];
+    private MudTable<TrackedComputerDto>? _computersTable;
     private List<TrackedPersonDto> _people = [];
     private bool _isLoading = true;
     private bool _isSaving;
+
+    private string _searchText = string.Empty;
+    private string _assignmentFilter = "all";
+    private int _rowsPerPage = 25;
 
     private string _newHostname = string.Empty;
     private string _newAssetTag = string.Empty;
@@ -99,14 +140,72 @@
     private string _editAssetTag = string.Empty;
     private int? _editPersonId;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
-
-    private async Task LoadAsync()
+    protected override async Task OnInitializedAsync()
     {
         _isLoading = true;
         _people = (await Api.GetPeopleAsync()).ToList();
-        _computers = (await Api.GetComputersAsync()).ToList();
         _isLoading = false;
+    }
+
+    private async Task<TableData<TrackedComputerDto>> LoadComputersServerData(TableState state, CancellationToken cancellationToken)
+    {
+        _isLoading = true;
+
+        var sortBy = string.IsNullOrWhiteSpace(state.SortLabel) ? "hostname" : state.SortLabel;
+        var sortDir = state.SortDirection == SortDirection.Descending ? "desc" : "asc";
+
+        var page = await Api.GetComputersPageAsync(
+            page: state.Page + 1,
+            pageSize: state.PageSize <= 0 ? _rowsPerPage : state.PageSize,
+            search: _searchText,
+            sortBy: sortBy,
+            sortDir: sortDir,
+            filter: _assignmentFilter);
+
+        _isLoading = false;
+
+        return new TableData<TrackedComputerDto>
+        {
+            Items = page.Items,
+            TotalItems = page.TotalCount
+        };
+    }
+
+    private async Task OnSearchDebounced(string _)
+    {
+        if (_computersTable is not null)
+        {
+            _computersTable.NavigateTo(0);
+            await _computersTable.ReloadServerData();
+        }
+    }
+
+    private async Task OnAssignmentFilterChanged(string value)
+    {
+        _assignmentFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
+        if (_computersTable is not null)
+        {
+            _computersTable.NavigateTo(0);
+            await _computersTable.ReloadServerData();
+        }
+    }
+
+    private void OnRowsPerPageChanged(int size)
+    {
+        _rowsPerPage = size;
+    }
+
+    private async Task ReloadComputersTableAsync()
+    {
+        if (_computersTable is not null)
+        {
+            await _computersTable.ReloadServerData();
+        }
+    }
+
+    private async Task RefreshPeopleForPickerAsync()
+    {
+        _people = (await Api.GetPeopleAsync()).ToList();
     }
 
     private async Task CreateComputerAsync()
@@ -130,7 +229,8 @@
         _newHostname = string.Empty;
         _newAssetTag = string.Empty;
         _selectedPersonId = null;
-        await LoadAsync();
+        await RefreshPeopleForPickerAsync();
+        await ReloadComputersTableAsync();
         Snackbar.Add("Computer added.", Severity.Success);
     }
 
@@ -169,7 +269,8 @@
         }
 
         CancelEdit();
-        await LoadAsync();
+        await RefreshPeopleForPickerAsync();
+        await ReloadComputersTableAsync();
         Snackbar.Add("Computer updated.", Severity.Success);
     }
 
@@ -203,7 +304,8 @@
             CancelEdit();
         }
 
-        await LoadAsync();
+        await RefreshPeopleForPickerAsync();
+        await ReloadComputersTableAsync();
         Snackbar.Add("Computer soft-deleted.", Severity.Success);
     }
 }

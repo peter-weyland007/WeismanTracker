@@ -42,11 +42,43 @@
 }
 
 <MudPaper Class="pa-2" Elevation="1">
-    <MudTable Items="_people" Hover="true" Dense="true" Loading="_isLoading">
+    <MudGrid Class="pa-2">
+        <MudItem xs="12" md="8">
+            <MudTextField @bind-Value="_searchText"
+                          Placeholder="Search name or email"
+                          Variant="Variant.Outlined"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          OnDebounceIntervalElapsed="OnSearchDebounced"
+                          DebounceInterval="350" />
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="string"
+                       Value="_emailFilter"
+                       ValueChanged="OnEmailFilterChanged"
+                       Label="Email filter"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                <MudSelectItem Value='@("all")'>All people</MudSelectItem>
+                <MudSelectItem Value='@("withEmail")'>With email</MudSelectItem>
+                <MudSelectItem Value='@("withoutEmail")'>Without email</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+    <MudTable T="TrackedPersonDto"
+              @ref="_peopleTable"
+              ServerData="LoadPeopleServerData"
+              Hover="true"
+              Dense="true"
+              Loading="_isLoading"
+              RowsPerPage="25"
+              RowsPerPageChanged="OnRowsPerPageChanged">
         <HeaderContent>
-            <MudTh>Name</MudTh>
-            <MudTh>Email</MudTh>
-            <MudTh>Created (UTC)</MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="fullName">Name</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="email">Email</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="createdAt">Created (UTC)</MudTableSortLabel></MudTh>
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
@@ -59,15 +91,24 @@
             </MudTd>
         </RowTemplate>
         <NoRecordsContent>
-            <MudText Class="pa-4">No people yet.</MudText>
+            <MudText Class="pa-4">No people found.</MudText>
         </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager RowsPerPageString="Rows per page"
+                           InfoFormat="{first_item}-{last_item} of {all_items}"
+                           PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+        </PagerContent>
     </MudTable>
 </MudPaper>
 
 @code {
-    private List<TrackedPersonDto> _people = [];
+    private MudTable<TrackedPersonDto>? _peopleTable;
     private bool _isLoading = true;
     private bool _isSaving;
+
+    private string _searchText = string.Empty;
+    private string _emailFilter = "all";
+    private int _rowsPerPage = 25;
 
     private string _newFullName = string.Empty;
     private string _newEmail = string.Empty;
@@ -76,13 +117,60 @@
     private string _editFullName = string.Empty;
     private string _editEmail = string.Empty;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
-
-    private async Task LoadAsync()
+    private async Task<TableData<TrackedPersonDto>> LoadPeopleServerData(TableState state, CancellationToken cancellationToken)
     {
         _isLoading = true;
-        _people = (await Api.GetPeopleAsync()).ToList();
+
+        var sortBy = string.IsNullOrWhiteSpace(state.SortLabel) ? "fullName" : state.SortLabel;
+        var sortDir = state.SortDirection == SortDirection.Descending ? "desc" : "asc";
+
+        var page = await Api.GetPeoplePageAsync(
+            page: state.Page + 1,
+            pageSize: state.PageSize <= 0 ? _rowsPerPage : state.PageSize,
+            search: _searchText,
+            sortBy: sortBy,
+            sortDir: sortDir,
+            filter: _emailFilter);
+
         _isLoading = false;
+
+        return new TableData<TrackedPersonDto>
+        {
+            Items = page.Items,
+            TotalItems = page.TotalCount
+        };
+    }
+
+    private async Task OnSearchDebounced(string _)
+    {
+        if (_peopleTable is not null)
+        {
+            _peopleTable.NavigateTo(0);
+            await _peopleTable.ReloadServerData();
+        }
+    }
+
+    private async Task OnEmailFilterChanged(string value)
+    {
+        _emailFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
+        if (_peopleTable is not null)
+        {
+            _peopleTable.NavigateTo(0);
+            await _peopleTable.ReloadServerData();
+        }
+    }
+
+    private void OnRowsPerPageChanged(int size)
+    {
+        _rowsPerPage = size;
+    }
+
+    private async Task ReloadPeopleTableAsync()
+    {
+        if (_peopleTable is not null)
+        {
+            await _peopleTable.ReloadServerData();
+        }
     }
 
     private async Task CreatePersonAsync()
@@ -105,7 +193,7 @@
 
         _newFullName = string.Empty;
         _newEmail = string.Empty;
-        await LoadAsync();
+        await ReloadPeopleTableAsync();
         Snackbar.Add("Person added.", Severity.Success);
     }
 
@@ -142,7 +230,7 @@
         }
 
         CancelEdit();
-        await LoadAsync();
+        await ReloadPeopleTableAsync();
         Snackbar.Add("Person updated.", Severity.Success);
     }
 
@@ -176,7 +264,7 @@
             CancelEdit();
         }
 
-        await LoadAsync();
+        await ReloadPeopleTableAsync();
         Snackbar.Add("Person soft-deleted.", Severity.Success);
     }
 }

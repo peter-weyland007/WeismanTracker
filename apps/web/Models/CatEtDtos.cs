@@ -6,6 +6,12 @@ public record CreateTrackedPersonRequest(string FullName, string? Email);
 public record TrackedComputerDto(int Id, string Hostname, string AssetTag, int? TrackedPersonId, string? TrackedPersonName, DateTime CreatedAtUtc);
 public record CreateTrackedComputerRequest(string Hostname, string AssetTag, int? TrackedPersonId);
 
+public record PagedResultDto<T>(
+    IReadOnlyList<T> Items,
+    int TotalCount,
+    int Page,
+    int PageSize);
+
 public record CatEtLicenseDto(
     int Id,
     string SerialNumber,
@@ -46,3 +52,76 @@ public record CatEtActivationActivityRowDto(
     string? Hostname,
     string? AssetTag,
     string? TrackedPersonName);
+
+public record NinjaIntegrationConfigDto(
+    string BaseUrl,
+    string ClientId,
+    bool HasClientSecret,
+    string Scope,
+    string TokenPath,
+    string DevicesPath,
+    int PageSize);
+
+public record MicrosoftGraphIntegrationConfigDto(
+    string TenantId,
+    string ClientId,
+    bool HasClientSecret,
+    string GraphBaseUrl,
+    string ResourceManagerBaseUrl,
+    int PageSize,
+    IReadOnlyList<string> AzureSubscriptionIds);
+
+public record IntegrationSettingsDto(
+    NinjaIntegrationConfigDto Ninja,
+    MicrosoftGraphIntegrationConfigDto MicrosoftGraph);
+
+public record UpdateNinjaIntegrationConfigRequest(
+    string BaseUrl,
+    string ClientId,
+    string? ClientSecret,
+    string Scope,
+    string TokenPath,
+    string DevicesPath,
+    int PageSize);
+
+public record UpdateMicrosoftGraphIntegrationConfigRequest(
+    string TenantId,
+    string ClientId,
+    string? ClientSecret,
+    string GraphBaseUrl,
+    string ResourceManagerBaseUrl,
+    int PageSize,
+    IReadOnlyList<string>? AzureSubscriptionIds);
+
+public record IntegrationSyncSourceStatusDto(
+    string Source,
+    string Status,
+    int SeenCount,
+    int MatchedCount,
+    string? Message);
+
+public record IntegrationSyncStatusDto(
+    string Target,
+    bool IsRunning,
+    string LastStatus,
+    DateTime? LastRunStartedAtUtc,
+    DateTime? LastRunCompletedAtUtc,
+    DateTime? LastSuccessAtUtc,
+    int LastSeenCount,
+    int LastMatchedCount,
+    string? LastMessage,
+    string? LastTriggeredBy,
+    IReadOnlyList<IntegrationSyncSourceStatusDto> Sources);
+
+public record IntegrationSyncStatusSnapshotDto(
+    IntegrationSyncStatusDto Ninja,
+    IntegrationSyncStatusDto Microsoft);
+
+public record TriggerIntegrationSyncResponseDto(
+    string Target,
+    bool Success,
+    string Message,
+    int SeenCount,
+    int MatchedCount,
+    DateTime StartedAtUtc,
+    DateTime CompletedAtUtc);
