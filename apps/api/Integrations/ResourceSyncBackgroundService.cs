@@ -115,6 +115,8 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                 var sourceStatuses = new List<IntegrationSyncSourceStatusDto>();
                 var seenCount = 0;
                 var matchedCount = 0;
+                var existingMatchedCount = 0;
+                var createdCount = 0;
 
                 var definition = await db.ResourceDefinitions
                     .FirstOrDefaultAsync(x =>
@@ -125,7 +127,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
 
                 if (definition is null)
                 {
-                    sourceStatuses.Add(CreateSourceStatus(NinjaDevicesSource, "Skipped", 0, 0, "Resource definition for NinjaRMM/Device not found."));
+                    sourceStatuses.Add(CreateSourceStatus(NinjaDevicesSource, "Skipped", 0, 0, 0, 0, "Resource definition for NinjaRMM/Device not found."));
                 }
                 else
                 {
@@ -139,8 +141,16 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                             continue;
                         }
 
-                        var entityId = await matcher.MatchComputerEntityIdFromNinjaAsync(device, cancellationToken)
-                            ?? await GetOrCreateTrackedComputerAsync(
+                        var matchedEntityId = await matcher.MatchComputerEntityIdFromNinjaAsync(device, cancellationToken);
+                        int? entityId;
+                        if (matchedEntityId is not null)
+                        {
+                            entityId = matchedEntityId;
+                            existingMatchedCount++;
+                        }
+                        else
+                        {
+                            entityId = await GetOrCreateTrackedComputerAsync(
                                 db,
                                 provider: "NinjaRMM",
                                 externalId: device.ExternalId,
@@ -148,6 +158,12 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 serialOrAsset: device.SerialNumber,
                                 machineId: null,
                                 cancellationToken);
+
+                            if (entityId is not null)
+                            {
+                                createdCount++;
+                            }
+                        }
 
                         if (entityId is null)
                         {
@@ -166,7 +182,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                         matchedCount++;
                     }
 
-                    sourceStatuses.Add(CreateSourceStatus(NinjaDevicesSource, "Success", seenCount, matchedCount, null));
+                    sourceStatuses.Add(CreateSourceStatus(NinjaDevicesSource, "Success", seenCount, matchedCount, existingMatchedCount, createdCount, null));
                 }
 
                 await db.SaveChangesAsync(cancellationToken);
@@ -184,7 +200,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                 var message = ex.Message;
                 var sourceStatuses = new[]
                 {
-                    CreateSourceStatus(NinjaDevicesSource, "Failed", 0, 0, message)
+                    CreateSourceStatus(NinjaDevicesSource, "Failed", 0, 0, 0, 0, message)
                 };
                 await MarkStatusCompleteAsync(db, status, false, message, 0, 0, sourceStatuses, cancellationToken);
                 return ToRunResult(NinjaTarget, false, message, 0, 0, acquiredAtUtc, DateTime.UtcNow);
@@ -238,14 +254,18 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                 var sourceStatuses = new List<IntegrationSyncSourceStatusDto>();
                 var seenCount = 0;
                 var matchedCount = 0;
+                var existingMatchedCount = 0;
+                var createdCount = 0;
 
                 if (userDefId is null)
                 {
-                    sourceStatuses.Add(CreateSourceStatus(GraphUsersSource, "Skipped", 0, 0, "Resource definition for MicrosoftGraph/User not found."));
+                    sourceStatuses.Add(CreateSourceStatus(GraphUsersSource, "Skipped", 0, 0, 0, 0, "Resource definition for MicrosoftGraph/User not found."));
                 }
                 else
                 {
                     var sourceMatchedCount = 0;
+                    var sourceExistingMatchedCount = 0;
+                    var sourceCreatedCount = 0;
                     try
                     {
                         var users = await graph.GetUsersAsync(cancellationToken);
@@ -258,8 +278,21 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            var entityId = await matcher.MatchUserEntityIdAsync(user, cancellationToken)
-                                ?? await GetOrCreateTrackedPersonAsync(db, user, cancellationToken);
+                            var matchedEntityId = await matcher.MatchUserEntityIdAsync(user, cancellationToken);
+                            int? entityId;
+                            if (matchedEntityId is not null)
+                            {
+                                entityId = matchedEntityId;
+                                sourceExistingMatchedCount++;
+                            }
+                            else
+                            {
+                                entityId = await GetOrCreateTrackedPersonAsync(db, user, cancellationToken);
+                                if (entityId is not null)
+                                {
+                                    sourceCreatedCount++;
+                                }
+                            }
 
                             if (entityId is null)
                             {
@@ -280,21 +313,25 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
 
                         seenCount += sourceSeenCount;
                         matchedCount += sourceMatchedCount;
-                        sourceStatuses.Add(CreateSourceStatus(GraphUsersSource, "Success", sourceSeenCount, sourceMatchedCount, null));
+                        existingMatchedCount += sourceExistingMatchedCount;
+                        createdCount += sourceCreatedCount;
+                        sourceStatuses.Add(CreateSourceStatus(GraphUsersSource, "Success", sourceSeenCount, sourceMatchedCount, sourceExistingMatchedCount, sourceCreatedCount, null));
                     }
                     catch (Exception ex)
                     {
-                        sourceStatuses.Add(CreateSourceStatus(GraphUsersSource, "Failed", 0, 0, ex.Message));
+                        sourceStatuses.Add(CreateSourceStatus(GraphUsersSource, "Failed", 0, 0, 0, 0, ex.Message));
                     }
                 }
 
                 if (graphDeviceDefId is null)
                 {
-                    sourceStatuses.Add(CreateSourceStatus(GraphDevicesSource, "Skipped", 0, 0, "Resource definition for MicrosoftGraph/Device not found."));
+                    sourceStatuses.Add(CreateSourceStatus(GraphDevicesSource, "Skipped", 0, 0, 0, 0, "Resource definition for MicrosoftGraph/Device not found."));
                 }
                 else
                 {
                     var sourceMatchedCount = 0;
+                    var sourceExistingMatchedCount = 0;
+                    var sourceCreatedCount = 0;
                     try
                     {
                         var devices = await graph.GetDevicesAsync(cancellationToken);
@@ -307,8 +344,16 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            var entityId = await matcher.MatchComputerEntityIdFromGraphDeviceAsync(device, cancellationToken)
-                                ?? await GetOrCreateTrackedComputerAsync(
+                            var matchedEntityId = await matcher.MatchComputerEntityIdFromGraphDeviceAsync(device, cancellationToken);
+                            int? entityId;
+                            if (matchedEntityId is not null)
+                            {
+                                entityId = matchedEntityId;
+                                sourceExistingMatchedCount++;
+                            }
+                            else
+                            {
+                                entityId = await GetOrCreateTrackedComputerAsync(
                                     db,
                                     provider: "MicrosoftGraph",
                                     externalId: device.ExternalId,
@@ -316,6 +361,12 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                     serialOrAsset: device.SerialNumber,
                                     machineId: device.DeviceId,
                                     cancellationToken);
+
+                                if (entityId is not null)
+                                {
+                                    sourceCreatedCount++;
+                                }
+                            }
 
                             if (entityId is null)
                             {
@@ -335,21 +386,25 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
 
                         seenCount += sourceSeenCount;
                         matchedCount += sourceMatchedCount;
-                        sourceStatuses.Add(CreateSourceStatus(GraphDevicesSource, "Success", sourceSeenCount, sourceMatchedCount, null));
+                        existingMatchedCount += sourceExistingMatchedCount;
+                        createdCount += sourceCreatedCount;
+                        sourceStatuses.Add(CreateSourceStatus(GraphDevicesSource, "Success", sourceSeenCount, sourceMatchedCount, sourceExistingMatchedCount, sourceCreatedCount, null));
                     }
                     catch (Exception ex)
                     {
-                        sourceStatuses.Add(CreateSourceStatus(GraphDevicesSource, "Failed", 0, 0, ex.Message));
+                        sourceStatuses.Add(CreateSourceStatus(GraphDevicesSource, "Failed", 0, 0, 0, 0, ex.Message));
                     }
                 }
 
                 if (intuneDefId is null)
                 {
-                    sourceStatuses.Add(CreateSourceStatus(IntuneManagedDevicesSource, "Skipped", 0, 0, "Resource definition for Intune/ManagedDevice not found."));
+                    sourceStatuses.Add(CreateSourceStatus(IntuneManagedDevicesSource, "Skipped", 0, 0, 0, 0, "Resource definition for Intune/ManagedDevice not found."));
                 }
                 else
                 {
                     var sourceMatchedCount = 0;
+                    var sourceExistingMatchedCount = 0;
+                    var sourceCreatedCount = 0;
                     try
                     {
                         var managedDevices = await graph.GetManagedDevicesAsync(cancellationToken);
@@ -362,8 +417,16 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            var entityId = await matcher.MatchComputerEntityIdFromIntuneAsync(device, cancellationToken)
-                                ?? await GetOrCreateTrackedComputerAsync(
+                            var matchedEntityId = await matcher.MatchComputerEntityIdFromIntuneAsync(device, cancellationToken);
+                            int? entityId;
+                            if (matchedEntityId is not null)
+                            {
+                                entityId = matchedEntityId;
+                                sourceExistingMatchedCount++;
+                            }
+                            else
+                            {
+                                entityId = await GetOrCreateTrackedComputerAsync(
                                     db,
                                     provider: "Intune",
                                     externalId: device.ExternalId,
@@ -371,6 +434,12 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                     serialOrAsset: device.SerialNumber,
                                     machineId: device.AzureAdDeviceId,
                                     cancellationToken);
+
+                                if (entityId is not null)
+                                {
+                                    sourceCreatedCount++;
+                                }
+                            }
 
                             if (entityId is null)
                             {
@@ -390,21 +459,25 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
 
                         seenCount += sourceSeenCount;
                         matchedCount += sourceMatchedCount;
-                        sourceStatuses.Add(CreateSourceStatus(IntuneManagedDevicesSource, "Success", sourceSeenCount, sourceMatchedCount, null));
+                        existingMatchedCount += sourceExistingMatchedCount;
+                        createdCount += sourceCreatedCount;
+                        sourceStatuses.Add(CreateSourceStatus(IntuneManagedDevicesSource, "Success", sourceSeenCount, sourceMatchedCount, sourceExistingMatchedCount, sourceCreatedCount, null));
                     }
                     catch (Exception ex)
                     {
-                        sourceStatuses.Add(CreateSourceStatus(IntuneManagedDevicesSource, "Failed", 0, 0, ex.Message));
+                        sourceStatuses.Add(CreateSourceStatus(IntuneManagedDevicesSource, "Failed", 0, 0, 0, 0, ex.Message));
                     }
                 }
 
                 if (azureVmDefId is null)
                 {
-                    sourceStatuses.Add(CreateSourceStatus(AzureVirtualMachinesSource, "Skipped", 0, 0, "Resource definition for Azure/VirtualMachine not found."));
+                    sourceStatuses.Add(CreateSourceStatus(AzureVirtualMachinesSource, "Skipped", 0, 0, 0, 0, "Resource definition for Azure/VirtualMachine not found."));
                 }
                 else
                 {
                     var sourceMatchedCount = 0;
+                    var sourceExistingMatchedCount = 0;
+                    var sourceCreatedCount = 0;
                     try
                     {
                         var vms = await graph.GetVirtualMachinesAsync(cancellationToken);
@@ -417,8 +490,16 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            var entityId = await matcher.MatchComputerEntityIdFromAzureVmAsync(vm, cancellationToken)
-                                ?? await GetOrCreateTrackedComputerAsync(
+                            var matchedEntityId = await matcher.MatchComputerEntityIdFromAzureVmAsync(vm, cancellationToken);
+                            int? entityId;
+                            if (matchedEntityId is not null)
+                            {
+                                entityId = matchedEntityId;
+                                sourceExistingMatchedCount++;
+                            }
+                            else
+                            {
+                                entityId = await GetOrCreateTrackedComputerAsync(
                                     db,
                                     provider: "Azure",
                                     externalId: vm.ExternalId,
@@ -426,6 +507,12 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                     serialOrAsset: null,
                                     machineId: vm.VmId,
                                     cancellationToken);
+
+                                if (entityId is not null)
+                                {
+                                    sourceCreatedCount++;
+                                }
+                            }
 
                             if (entityId is null)
                             {
@@ -445,11 +532,13 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
 
                         seenCount += sourceSeenCount;
                         matchedCount += sourceMatchedCount;
-                        sourceStatuses.Add(CreateSourceStatus(AzureVirtualMachinesSource, "Success", sourceSeenCount, sourceMatchedCount, null));
+                        existingMatchedCount += sourceExistingMatchedCount;
+                        createdCount += sourceCreatedCount;
+                        sourceStatuses.Add(CreateSourceStatus(AzureVirtualMachinesSource, "Success", sourceSeenCount, sourceMatchedCount, sourceExistingMatchedCount, sourceCreatedCount, null));
                     }
                     catch (Exception ex)
                     {
-                        sourceStatuses.Add(CreateSourceStatus(AzureVirtualMachinesSource, "Failed", 0, 0, ex.Message));
+                        sourceStatuses.Add(CreateSourceStatus(AzureVirtualMachinesSource, "Failed", 0, 0, 0, 0, ex.Message));
                     }
                 }
 
@@ -468,10 +557,10 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                 var message = ex.Message;
                 var sourceStatuses = new[]
                 {
-                    CreateSourceStatus(GraphUsersSource, "Failed", 0, 0, message),
-                    CreateSourceStatus(GraphDevicesSource, "Failed", 0, 0, message),
-                    CreateSourceStatus(IntuneManagedDevicesSource, "Failed", 0, 0, message),
-                    CreateSourceStatus(AzureVirtualMachinesSource, "Failed", 0, 0, message)
+                    CreateSourceStatus(GraphUsersSource, "Failed", 0, 0, 0, 0, message),
+                    CreateSourceStatus(GraphDevicesSource, "Failed", 0, 0, 0, 0, message),
+                    CreateSourceStatus(IntuneManagedDevicesSource, "Failed", 0, 0, 0, 0, message),
+                    CreateSourceStatus(AzureVirtualMachinesSource, "Failed", 0, 0, 0, 0, message)
                 };
                 await MarkStatusCompleteAsync(db, status, false, message, 0, 0, sourceStatuses, cancellationToken);
                 return ToRunResult(MicrosoftTarget, false, message, 0, 0, acquiredAtUtc, DateTime.UtcNow);
@@ -748,12 +837,22 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private static IntegrationSyncSourceStatusDto CreateSourceStatus(string source, string status, int seenCount, int matchedCount, string? message)
+    private static IntegrationSyncSourceStatusDto CreateSourceStatus(
+        string source,
+        string status,
+        int seenCount,
+        int matchedCount,
+        int existingMatchedCount,
+        int createdCount,
+        string? message)
         => new(
             Source: source,
             Status: status,
             SeenCount: seenCount,
             MatchedCount: matchedCount,
+            ExistingMatchedCount: existingMatchedCount,
+            CreatedCount: createdCount,
+            UnmatchedCount: Math.Max(0, seenCount - matchedCount),
             Message: string.IsNullOrWhiteSpace(message) ? null : message.Trim());
 
     private static string BuildAggregateMessage(string target, int seenCount, int matchedCount, IReadOnlyList<IntegrationSyncSourceStatusDto> sourceStatuses)
@@ -761,7 +860,24 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         var failed = sourceStatuses.Where(x => x.Status.Equals("Failed", StringComparison.OrdinalIgnoreCase)).Select(x => x.Source).ToList();
         var skipped = sourceStatuses.Where(x => x.Status.Equals("Skipped", StringComparison.OrdinalIgnoreCase)).Select(x => x.Source).ToList();
 
-        var summary = $"{target} sync complete. Seen {seenCount}, matched {matchedCount}.";
+        var existingMatched = sourceStatuses.Sum(x => x.ExistingMatchedCount);
+        var created = sourceStatuses.Sum(x => x.CreatedCount);
+        var unmatched = Math.Max(0, seenCount - matchedCount);
+
+        var summary = $"{target} sync complete. Seen {seenCount}, matched {matchedCount} (existing {existingMatched}, created {created}, unmatched {unmatched}).";
+
+        var userSources = sourceStatuses.Where(IsUserSource).ToList();
+        var computerSources = sourceStatuses.Where(x => !IsUserSource(x)).ToList();
+
+        if (userSources.Count > 0)
+        {
+            summary += $" Users: {BuildEntitySummary(userSources)}.";
+        }
+
+        if (computerSources.Count > 0)
+        {
+            summary += $" Computers: {BuildEntitySummary(computerSources)}.";
+        }
 
         if (failed.Count > 0)
         {
@@ -774,6 +890,20 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         }
 
         return summary;
+    }
+
+    private static bool IsUserSource(IntegrationSyncSourceStatusDto source)
+        => source.Source.Equals(GraphUsersSource, StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildEntitySummary(IReadOnlyList<IntegrationSyncSourceStatusDto> sources)
+    {
+        var seen = sources.Sum(x => x.SeenCount);
+        var matched = sources.Sum(x => x.MatchedCount);
+        var existing = sources.Sum(x => x.ExistingMatchedCount);
+        var created = sources.Sum(x => x.CreatedCount);
+        var unmatched = sources.Sum(x => x.UnmatchedCount);
+
+        return $"seen {seen}, matched {matched} (existing {existing}, created {created}, unmatched {unmatched})";
     }
 
     private static string? SerializeSources(IReadOnlyList<IntegrationSyncSourceStatusDto> sourceStatuses)

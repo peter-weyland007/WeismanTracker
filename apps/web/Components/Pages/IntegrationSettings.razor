@@ -23,6 +23,7 @@
                     @GetStatusLabel(_ninjaStatus)
                 </MudChip>
                 <MudText Typo="Typo.body2">Seen/Matched: @_ninjaStatus.LastSeenCount/@_ninjaStatus.LastMatchedCount</MudText>
+                <MudText Typo="Typo.caption">Computers: @BuildEntityAuditSummary(_ninjaStatus.Sources.Where(x => !IsUserSourceName(x.Source)))</MudText>
                 <MudText Typo="Typo.caption">Started: @FormatUtc(_ninjaStatus.LastRunStartedAtUtc)</MudText>
                 <MudText Typo="Typo.caption">Completed: @FormatUtc(_ninjaStatus.LastRunCompletedAtUtc)</MudText>
                 <MudText Typo="Typo.caption">Last success: @FormatUtc(_ninjaStatus.LastSuccessAtUtc)</MudText>
@@ -39,6 +40,8 @@
                     @GetStatusLabel(_microsoftStatus)
                 </MudChip>
                 <MudText Typo="Typo.body2">Seen/Matched: @_microsoftStatus.LastSeenCount/@_microsoftStatus.LastMatchedCount</MudText>
+                <MudText Typo="Typo.caption">Users: @BuildEntityAuditSummary(_microsoftStatus.Sources.Where(x => IsUserSourceName(x.Source)))</MudText>
+                <MudText Typo="Typo.caption">Computers: @BuildEntityAuditSummary(_microsoftStatus.Sources.Where(x => !IsUserSourceName(x.Source)))</MudText>
                 <MudText Typo="Typo.caption">Started: @FormatUtc(_microsoftStatus.LastRunStartedAtUtc)</MudText>
                 <MudText Typo="Typo.caption">Completed: @FormatUtc(_microsoftStatus.LastRunCompletedAtUtc)</MudText>
                 <MudText Typo="Typo.caption">Last success: @FormatUtc(_microsoftStatus.LastSuccessAtUtc)</MudText>
@@ -58,6 +61,7 @@
                                 <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" Color="@GetSourceStatusColor(source.Status)">@source.Status</MudChip>
                                 <MudText Typo="Typo.caption">@source.Source</MudText>
                                 <MudText Typo="Typo.caption">@($"Seen/Matched: {source.SeenCount}/{source.MatchedCount}")</MudText>
+                                <MudText Typo="Typo.caption">@($"Existing: {source.ExistingMatchedCount} • Created: {source.CreatedCount} • Unmatched: {source.UnmatchedCount}")</MudText>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(source.Message))
                             {
@@ -371,6 +375,26 @@
             "running" => Color.Info,
             _ => Color.Default
         };
+
+    private static bool IsUserSourceName(string source)
+        => source.Equals("GraphUsers", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildEntityAuditSummary(IEnumerable<IntegrationSyncSourceStatusDto> sources)
+    {
+        var sourceList = sources.ToList();
+        if (sourceList.Count == 0)
+        {
+            return "seen 0, matched 0 (existing 0, created 0, unmatched 0)";
+        }
+
+        var seen = sourceList.Sum(x => x.SeenCount);
+        var matched = sourceList.Sum(x => x.MatchedCount);
+        var existing = sourceList.Sum(x => x.ExistingMatchedCount);
+        var created = sourceList.Sum(x => x.CreatedCount);
+        var unmatched = sourceList.Sum(x => x.UnmatchedCount);
+
+        return $"seen {seen}, matched {matched} (existing {existing}, created {created}, unmatched {unmatched})";
+    }
 
     private Task ShowNinjaSetupHelpAsync()
     {

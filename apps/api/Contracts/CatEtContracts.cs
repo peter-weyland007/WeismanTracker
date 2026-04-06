@@ -158,6 +158,9 @@ public record IntegrationSyncSourceStatusDto(
     string Status,
     int SeenCount,
     int MatchedCount,
+    int ExistingMatchedCount,
+    int CreatedCount,
+    int UnmatchedCount,
     string? Message);
 
 public record IntegrationSyncStatusDto(
