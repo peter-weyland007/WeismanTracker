@@ -102,7 +102,9 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
         string? search = null,
         string? sortBy = null,
         string? sortDir = null,
-        string? filter = null)
+        string? filter = null,
+        string? visibility = null,
+        string? category = null)
     {
         var url = $"/api/catet/computers?page={Math.Max(1, page)}&pageSize={Math.Clamp(pageSize, 1, 500)}";
         if (!string.IsNullOrWhiteSpace(search))
@@ -123,6 +125,16 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
         if (!string.IsNullOrWhiteSpace(filter))
         {
             url += $"&filter={Uri.EscapeDataString(filter.Trim())}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(visibility))
+        {
+            url += $"&visibility={Uri.EscapeDataString(visibility.Trim())}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            url += $"&category={Uri.EscapeDataString(category.Trim())}";
         }
 
         return await _http.GetFromJsonAsync<PagedResultDto<TrackedComputerDto>>(url)
@@ -176,6 +188,17 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     public async Task<(bool Success, string? Error)> DeleteComputerAsync(int id)
     {
         var response = await _http.DeleteAsync($"/api/catet/computers/{id}");
+        if (response.IsSuccessStatusCode)
+        {
+            return (true, null);
+        }
+
+        return (false, await ReadErrorAsync(response));
+    }
+
+    public async Task<(bool Success, string? Error)> UpdateComputerFlagsAsync(int id, UpdateTrackedComputerFlagsRequest request)
+    {
+        var response = await _http.PutAsJsonAsync($"/api/catet/computers/{id}/flags", request);
         if (response.IsSuccessStatusCode)
         {
             return (true, null);

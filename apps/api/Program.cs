@@ -45,6 +45,7 @@ using (var scope = app.Services.CreateScope())
     EnsureTrackedComputerPersonNullable(db);
     EnsureCatEtLicenseComputerNullable(db);
     EnsureSoftDeleteColumns(db);
+    EnsureTrackedComputerSyncControlColumns(db);
     EnsureEntityResourceCoverageSchema(db);
     EnsureIntegrationProviderConfigSchema(db);
     EnsureIntegrationSyncStatusSchema(db);
@@ -562,12 +563,14 @@ app.MapDelete("/api/catet/people/{id:int}", async (int id, AppDbContext db) =>
     return Results.Ok();
 });
 
-app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pageSize = 50, string? search = null, string? sortBy = null, string? sortDir = null, string? filter = null) =>
+app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pageSize = 50, string? search = null, string? sortBy = null, string? sortDir = null, string? filter = null, string? visibility = null, string? category = null) =>
 {
     var safePage = Math.Max(1, page);
     var safePageSize = Math.Clamp(pageSize, 1, 500);
     var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
     var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+    var normalizedVisibility = string.IsNullOrWhiteSpace(visibility) ? "visible" : visibility.Trim().ToLowerInvariant();
+    var normalizedCategory = NormalizeAssetCategory(category);
     var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "hostname" : sortBy.Trim().ToLowerInvariant();
     var desc = string.Equals(sortDir?.Trim(), "desc", StringComparison.OrdinalIgnoreCase);
 
@@ -592,6 +595,19 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
         _ => query
     };
 
+    query = normalizedVisibility switch
+    {
+        "hidden" => query.Where(c => c.HiddenFromTable),
+        "mobile" => query.Where(c => c.IsMobileDevice),
+        "all" => query,
+        _ => query.Where(c => !c.HiddenFromTable)
+    };
+
+    if (!string.IsNullOrWhiteSpace(normalizedCategory) && !string.Equals(normalizedCategory, "all", StringComparison.OrdinalIgnoreCase))
+    {
+        query = query.Where(c => c.AssetCategory == normalizedCategory);
+    }
+
     query = (normalizedSortBy, desc) switch
     {
         ("assignee", false) => query.OrderBy(c => c.TrackedPerson == null).ThenBy(c => c.TrackedPerson != null ? c.TrackedPerson.FullName : string.Empty).ThenBy(c => c.Id),
@@ -614,7 +630,11 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
             c.AssetTag,
             c.TrackedPersonId,
             c.TrackedPerson != null ? c.TrackedPerson.FullName : null,
-            c.CreatedAtUtc))
+            c.CreatedAtUtc,
+            c.ExcludeFromSync,
+            c.HiddenFromTable,
+            c.IsMobileDevice,
+            c.AssetCategory))
         .ToListAsync();
 
     return Results.Ok(new PagedResultDto<TrackedComputerDto>(computers, totalCount, safePage, safePageSize));
@@ -642,7 +662,8 @@ app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request,
         Hostname = request.Hostname.Trim(),
         AssetTag = request.AssetTag.Trim(),
         TrackedPersonId = request.TrackedPersonId,
-        CreatedAtUtc = DateTime.UtcNow
+        CreatedAtUtc = DateTime.UtcNow,
+        AssetCategory = "Computer"
     };
 
     db.TrackedComputers.Add(computer);
@@ -662,7 +683,11 @@ app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request,
         computer.AssetTag,
         computer.TrackedPersonId,
         person?.FullName,
-        computer.CreatedAtUtc));
+        computer.CreatedAtUtc,
+        computer.ExcludeFromSync,
+        computer.HiddenFromTable,
+        computer.IsMobileDevice,
+        computer.AssetCategory));
 });
 
 app.MapPut("/api/catet/computers/{id:int}", async (int id, CreateTrackedComputerRequest request, AppDbContext db) =>
@@ -707,7 +732,39 @@ app.MapPut("/api/catet/computers/{id:int}", async (int id, CreateTrackedComputer
         computer.AssetTag,
         computer.TrackedPersonId,
         person?.FullName,
-        computer.CreatedAtUtc));
+        computer.CreatedAtUtc,
+        computer.ExcludeFromSync,
+        computer.HiddenFromTable,
+        computer.IsMobileDevice,
+        computer.AssetCategory));
+});
+
+app.MapPut("/api/catet/computers/{id:int}/flags", async (int id, UpdateTrackedComputerFlagsRequest request, AppDbContext db) =>
+{
+    var computer = await db.TrackedComputers.FirstOrDefaultAsync(c => c.Id == id && c.DeletedAtUtc == null);
+    if (computer is null)
+    {
+        return Results.NotFound(new { message = "Computer not found." });
+    }
+
+    if (request.ExcludeFromSync is bool excludeFromSync)
+    {
+        computer.ExcludeFromSync = excludeFromSync;
+    }
+
+    if (request.HiddenFromTable is bool hiddenFromTable)
+    {
+        computer.HiddenFromTable = hiddenFromTable;
+    }
+
+    if (request.AssetCategory is not null)
+    {
+        computer.AssetCategory = NormalizeAssetCategory(request.AssetCategory) ?? "Computer";
+        computer.IsMobileDevice = !computer.AssetCategory.Equals("Computer", StringComparison.OrdinalIgnoreCase);
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok();
 });
 
 app.MapDelete("/api/catet/computers/{id:int}", async (int id, AppDbContext db) =>
@@ -1370,6 +1427,44 @@ ALTER TABLE ""CatEtLicenses"" ADD COLUMN ""DeletedAtUtc"" TEXT NULL;";
     try { command.ExecuteNonQuery(); } catch { }
 }
 
+void EnsureTrackedComputerSyncControlColumns(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    if (!TableColumnExists(connection, "TrackedComputers", "ExcludeFromSync"))
+    {
+        using var addExclude = connection.CreateCommand();
+        addExclude.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"ExcludeFromSync\" INTEGER NOT NULL DEFAULT 0;";
+        addExclude.ExecuteNonQuery();
+    }
+
+    if (!TableColumnExists(connection, "TrackedComputers", "HiddenFromTable"))
+    {
+        using var addHidden = connection.CreateCommand();
+        addHidden.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"HiddenFromTable\" INTEGER NOT NULL DEFAULT 0;";
+        addHidden.ExecuteNonQuery();
+    }
+
+    if (!TableColumnExists(connection, "TrackedComputers", "IsMobileDevice"))
+    {
+        using var addMobile = connection.CreateCommand();
+        addMobile.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"IsMobileDevice\" INTEGER NOT NULL DEFAULT 0;";
+        addMobile.ExecuteNonQuery();
+    }
+
+    if (!TableColumnExists(connection, "TrackedComputers", "AssetCategory"))
+    {
+        using var addCategory = connection.CreateCommand();
+        addCategory.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"AssetCategory\" TEXT NOT NULL DEFAULT 'Computer';";
+        addCategory.ExecuteNonQuery();
+    }
+}
+
 void EnsureEntityResourceCoverageSchema(AppDbContext db)
 {
     using var connection = db.Database.GetDbConnection();
@@ -1519,6 +1614,30 @@ bool TableColumnExists(DbConnection connection, string tableName, string columnN
     }
 
     return false;
+}
+
+string? NormalizeAssetCategory(string? raw)
+{
+    if (string.IsNullOrWhiteSpace(raw))
+    {
+        return null;
+    }
+
+    return raw.Trim().ToLowerInvariant() switch
+    {
+        "computer" => "Computer",
+        "mobile" => "Mobile Device",
+        "mobiledevice" => "Mobile Device",
+        "mobile device" => "Mobile Device",
+        "mobile devices" => "Mobile Device",
+        "phone" => "Phone",
+        "tablet" => "Tablet",
+        "other" => "Other Device",
+        "otherdevice" => "Other Device",
+        "other device" => "Other Device",
+        "all" => "all",
+        _ => "Other Device"
+    };
 }
 
 bool TryParseResourceEntityType(string value, out ResourceEntityType entityType)

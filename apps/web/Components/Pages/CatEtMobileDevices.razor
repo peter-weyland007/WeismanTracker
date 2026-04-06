@@ -1,0 +1,198 @@
+@page "/assets/mobile-devices"
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Mobile Devices</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Company Assets - Mobile Devices</MudText>
+
+<MudPaper Class="pa-2" Elevation="1">
+    <MudGrid Class="pa-2">
+        <MudItem xs="12" md="6">
+            <MudTextField @bind-Value="_searchText"
+                          Placeholder="Search hostname, asset tag, or assigned user"
+                          Variant="Variant.Outlined"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true"
+                          Margin="Margin.Dense"
+                          OnDebounceIntervalElapsed="OnSearchDebounced"
+                          DebounceInterval="350" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect T="string"
+                       Value="_mobileCategoryFilter"
+                       ValueChanged="OnCategoryFilterChanged"
+                       Label="Device category"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                @foreach (var category in _mobileCategories)
+                {
+                    <MudSelectItem Value="@category">@category</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect T="string"
+                       Value="_visibilityFilter"
+                       ValueChanged="OnVisibilityFilterChanged"
+                       Label="Visibility"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                <MudSelectItem Value='@("visible")'>Visible only</MudSelectItem>
+                <MudSelectItem Value='@("all")'>All</MudSelectItem>
+                <MudSelectItem Value='@("hidden")'>Hidden only</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+
+    <MudTable T="TrackedComputerDto"
+              @ref="_table"
+              ServerData="LoadServerData"
+              Dense="true"
+              Hover="true"
+              Loading="_isLoading"
+              RowsPerPage="25">
+        <HeaderContent>
+            <MudTh>Hostname</MudTh>
+            <MudTh>Asset Tag</MudTh>
+            <MudTh>Assigned User</MudTh>
+            <MudTh>Category</MudTh>
+            <MudTh>Sync</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Hostname</MudTd>
+            <MudTd>@context.AssetTag</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonName) ? "Unassigned" : context.TrackedPersonName)</MudTd>
+            <MudTd>
+                <MudSelect T="string" Dense="true" Value="@context.AssetCategory" ValueChanged="@(value => SetCategoryAsync(context, value))" Variant="Variant.Outlined">
+                    @foreach (var category in _assignableCategories)
+                    {
+                        <MudSelectItem Value="@category">@category</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudTd>
+            <MudTd>@(context.ExcludeFromSync ? "Excluded" : "Enabled")</MudTd>
+            <MudTd>
+                <MudButton Variant="Variant.Text" Color="@(context.ExcludeFromSync ? Color.Success : Color.Warning)" Size="Size.Small" OnClick="() => ToggleSyncAsync(context)">@(context.ExcludeFromSync ? "Enable Sync" : "Exclude Sync")</MudButton>
+                <MudButton Variant="Variant.Text" Color="@(context.HiddenFromTable ? Color.Success : Color.Secondary)" Size="Size.Small" OnClick="() => ToggleHiddenAsync(context)">@(context.HiddenFromTable ? "Unhide" : "Hide")</MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Class="pa-4">No mobile devices found.</MudText>
+        </NoRecordsContent>
+        <PagerContent>
+            <MudTablePager RowsPerPageString="Rows per page"
+                           InfoFormat="{first_item}-{last_item} of {all_items}"
+                           PageSizeOptions="new int[] { 10, 25, 50, 100 }" />
+        </PagerContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private MudTable<TrackedComputerDto>? _table;
+    private bool _isLoading;
+    private string _searchText = string.Empty;
+    private string _mobileCategoryFilter = "Mobile Device";
+    private string _visibilityFilter = "visible";
+
+    private static readonly string[] _mobileCategories = ["Mobile Device", "Phone", "Tablet", "Other Device", "all"];
+    private static readonly string[] _assignableCategories = ["Mobile Device", "Phone", "Tablet", "Other Device", "Computer"];
+
+    private async Task<TableData<TrackedComputerDto>> LoadServerData(TableState state, CancellationToken token)
+    {
+        _isLoading = true;
+
+        var page = await Api.GetComputersPageAsync(
+            page: state.Page + 1,
+            pageSize: state.PageSize <= 0 ? 25 : state.PageSize,
+            search: _searchText,
+            sortBy: string.IsNullOrWhiteSpace(state.SortLabel) ? "hostname" : state.SortLabel,
+            sortDir: state.SortDirection == SortDirection.Descending ? "desc" : "asc",
+            visibility: _visibilityFilter,
+            category: _mobileCategoryFilter,
+            filter: "all");
+
+        _isLoading = false;
+
+        return new TableData<TrackedComputerDto>
+        {
+            Items = page.Items,
+            TotalItems = page.TotalCount
+        };
+    }
+
+    private async Task OnSearchDebounced(string _)
+    {
+        if (_table is null) return;
+        _table.NavigateTo(0);
+        await _table.ReloadServerData();
+    }
+
+    private async Task OnCategoryFilterChanged(string value)
+    {
+        _mobileCategoryFilter = string.IsNullOrWhiteSpace(value) ? "Mobile Device" : value;
+        if (_table is null) return;
+        _table.NavigateTo(0);
+        await _table.ReloadServerData();
+    }
+
+    private async Task OnVisibilityFilterChanged(string value)
+    {
+        _visibilityFilter = string.IsNullOrWhiteSpace(value) ? "visible" : value;
+        if (_table is null) return;
+        _table.NavigateTo(0);
+        await _table.ReloadServerData();
+    }
+
+    private async Task ToggleSyncAsync(TrackedComputerDto device)
+    {
+        var (ok, err) = await Api.UpdateComputerFlagsAsync(device.Id, new UpdateTrackedComputerFlagsRequest(!device.ExcludeFromSync, null, null));
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to update sync setting.", Severity.Error);
+            return;
+        }
+
+        if (_table is not null)
+        {
+            await _table.ReloadServerData();
+        }
+    }
+
+    private async Task ToggleHiddenAsync(TrackedComputerDto device)
+    {
+        var (ok, err) = await Api.UpdateComputerFlagsAsync(device.Id, new UpdateTrackedComputerFlagsRequest(null, !device.HiddenFromTable, null));
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to update visibility.", Severity.Error);
+            return;
+        }
+
+        if (_table is not null)
+        {
+            await _table.ReloadServerData();
+        }
+    }
+
+    private async Task SetCategoryAsync(TrackedComputerDto device, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || string.Equals(device.AssetCategory, value, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var (ok, err) = await Api.UpdateComputerFlagsAsync(device.Id, new UpdateTrackedComputerFlagsRequest(null, null, value));
+        if (!ok)
+        {
+            Snackbar.Add(err ?? "Failed to update category.", Severity.Error);
+            return;
+        }
+
+        if (_table is not null)
+        {
+            await _table.ReloadServerData();
+        }
+    }
+}

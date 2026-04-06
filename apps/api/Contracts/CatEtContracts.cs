@@ -3,8 +3,19 @@ namespace api.Contracts;
 public record TrackedPersonDto(int Id, string FullName, string? Email, DateTime CreatedAtUtc);
 public record CreateTrackedPersonRequest(string FullName, string? Email);
 
-public record TrackedComputerDto(int Id, string Hostname, string AssetTag, int? TrackedPersonId, string? TrackedPersonName, DateTime CreatedAtUtc);
+public record TrackedComputerDto(
+    int Id,
+    string Hostname,
+    string AssetTag,
+    int? TrackedPersonId,
+    string? TrackedPersonName,
+    DateTime CreatedAtUtc,
+    bool ExcludeFromSync,
+    bool HiddenFromTable,
+    bool IsMobileDevice,
+    string AssetCategory);
 public record CreateTrackedComputerRequest(string Hostname, string AssetTag, int? TrackedPersonId);
+public record UpdateTrackedComputerFlagsRequest(bool? ExcludeFromSync, bool? HiddenFromTable, string? AssetCategory);
 
 public record PagedResultDto<T>(
     IReadOnlyList<T> Items,

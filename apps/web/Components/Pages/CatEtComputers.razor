@@ -61,7 +61,7 @@
 
 <MudPaper Class="pa-2" Elevation="1">
     <MudGrid Class="pa-2">
-        <MudItem xs="12" md="8">
+        <MudItem xs="12" md="6">
             <MudTextField @bind-Value="_searchText"
                           Placeholder="Search hostname, asset tag, or assigned user"
                           Variant="Variant.Outlined"
@@ -72,7 +72,7 @@
                           OnDebounceIntervalElapsed="OnSearchDebounced"
                           DebounceInterval="350" />
         </MudItem>
-        <MudItem xs="12" md="4">
+        <MudItem xs="12" md="3">
             <MudSelect T="string"
                        Value="_assignmentFilter"
                        ValueChanged="OnAssignmentFilterChanged"
@@ -82,6 +82,32 @@
                 <MudSelectItem Value='@("all")'>All computers</MudSelectItem>
                 <MudSelectItem Value='@("assigned")'>Assigned only</MudSelectItem>
                 <MudSelectItem Value='@("unassigned")'>Unassigned only</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect T="string"
+                       Value="_visibilityFilter"
+                       ValueChanged="OnVisibilityFilterChanged"
+                       Label="Visibility"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                <MudSelectItem Value='@("visible")'>Visible only</MudSelectItem>
+                <MudSelectItem Value='@("all")'>All</MudSelectItem>
+                <MudSelectItem Value='@("hidden")'>Hidden only</MudSelectItem>
+                <MudSelectItem Value='@("mobile")'>Mobile only</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect T="string"
+                       Value="_categoryFilter"
+                       ValueChanged="OnCategoryFilterChanged"
+                       Label="Asset category"
+                       Variant="Variant.Outlined"
+                       Margin="Margin.Dense">
+                @foreach (var category in _assetCategories)
+                {
+                    <MudSelectItem Value="@category">@category</MudSelectItem>
+                }
             </MudSelect>
         </MudItem>
     </MudGrid>
@@ -97,16 +123,45 @@
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="hostname">Hostname</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="assetTag">Asset Tag</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="assignee">Assigned User</MudTableSortLabel></MudTh>
+            <MudTh>Category</MudTh>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="createdAt">Created (UTC)</MudTableSortLabel></MudTh>
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd>@context.Hostname</MudTd>
+            <MudTd>
+                @context.Hostname
+                @if (context.IsMobileDevice)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" Class="ms-1">Mobile</MudChip>
+                }
+                @if (context.ExcludeFromSync)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Class="ms-1">Sync Excluded</MudChip>
+                }
+                @if (context.HiddenFromTable)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary" Class="ms-1">Hidden</MudChip>
+                }
+            </MudTd>
             <MudTd>@context.AssetTag</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonName) ? "Unassigned" : context.TrackedPersonName)</MudTd>
+            <MudTd>
+                <MudSelect T="string"
+                           Dense="true"
+                           Value="@context.AssetCategory"
+                           ValueChanged="@(value => SetAssetCategoryAsync(context, value))"
+                           Variant="Variant.Outlined">
+                    @foreach (var category in _assignableCategories)
+                    {
+                        <MudSelectItem Value="@category">@category</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudTd>
             <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
             <MudTd>
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
+                <MudButton Variant="Variant.Text" Color="@(context.ExcludeFromSync ? Color.Success : Color.Warning)" Size="Size.Small" OnClick="() => ToggleSyncExclusionAsync(context)">@(context.ExcludeFromSync ? "Enable Sync" : "Exclude Sync")</MudButton>
+                <MudButton Variant="Variant.Text" Color="@(context.HiddenFromTable ? Color.Success : Color.Secondary)" Size="Size.Small" OnClick="() => ToggleHiddenAsync(context)">@(context.HiddenFromTable ? "Unhide" : "Hide")</MudButton>
                 <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small" OnClick="() => DeleteComputerAsync(context.Id)">Delete</MudButton>
             </MudTd>
         </RowTemplate>
@@ -129,7 +184,12 @@
 
     private string _searchText = string.Empty;
     private string _assignmentFilter = "all";
+    private string _visibilityFilter = "visible";
+    private string _categoryFilter = "all";
     private int _rowsPerPage = 25;
+
+    private static readonly string[] _assetCategories = ["all", "Computer", "Mobile Device", "Phone", "Tablet", "Other Device"];
+    private static readonly string[] _assignableCategories = ["Computer", "Mobile Device", "Phone", "Tablet", "Other Device"];
 
     private string _newHostname = string.Empty;
     private string _newAssetTag = string.Empty;
@@ -160,7 +220,9 @@
             search: _searchText,
             sortBy: sortBy,
             sortDir: sortDir,
-            filter: _assignmentFilter);
+            filter: _assignmentFilter,
+            visibility: _visibilityFilter,
+            category: _categoryFilter);
 
         _isLoading = false;
 
@@ -183,6 +245,26 @@
     private async Task OnAssignmentFilterChanged(string value)
     {
         _assignmentFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
+        if (_computersTable is not null)
+        {
+            _computersTable.NavigateTo(0);
+            await _computersTable.ReloadServerData();
+        }
+    }
+
+    private async Task OnVisibilityFilterChanged(string value)
+    {
+        _visibilityFilter = string.IsNullOrWhiteSpace(value) ? "visible" : value;
+        if (_computersTable is not null)
+        {
+            _computersTable.NavigateTo(0);
+            await _computersTable.ReloadServerData();
+        }
+    }
+
+    private async Task OnCategoryFilterChanged(string value)
+    {
+        _categoryFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
         if (_computersTable is not null)
         {
             _computersTable.NavigateTo(0);
@@ -272,6 +354,59 @@
         await RefreshPeopleForPickerAsync();
         await ReloadComputersTableAsync();
         Snackbar.Add("Computer updated.", Severity.Success);
+    }
+
+    private async Task ToggleSyncExclusionAsync(TrackedComputerDto computer)
+    {
+        _isSaving = true;
+        var (success, error) = await Api.UpdateComputerFlagsAsync(computer.Id, new UpdateTrackedComputerFlagsRequest(!computer.ExcludeFromSync, null, null));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to update sync exclusion.", Severity.Error);
+            return;
+        }
+
+        await ReloadComputersTableAsync();
+        Snackbar.Add(computer.ExcludeFromSync ? "Sync re-enabled for computer." : "Computer excluded from sync.", Severity.Success);
+    }
+
+    private async Task ToggleHiddenAsync(TrackedComputerDto computer)
+    {
+        _isSaving = true;
+        var (success, error) = await Api.UpdateComputerFlagsAsync(computer.Id, new UpdateTrackedComputerFlagsRequest(null, !computer.HiddenFromTable, null));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to update hidden status.", Severity.Error);
+            return;
+        }
+
+        await ReloadComputersTableAsync();
+        Snackbar.Add(computer.HiddenFromTable ? "Computer is visible again." : "Computer hidden from table.", Severity.Success);
+    }
+
+    private async Task SetAssetCategoryAsync(TrackedComputerDto computer, string category)
+    {
+        if (string.IsNullOrWhiteSpace(category) || string.Equals(computer.AssetCategory, category, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.UpdateComputerFlagsAsync(computer.Id, new UpdateTrackedComputerFlagsRequest(null, null, category));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to update asset category.", Severity.Error);
+            return;
+        }
+
+        await ReloadComputersTableAsync();
+        Snackbar.Add($"Moved to {category} category.", Severity.Success);
     }
 
     private async Task DeleteComputerAsync(int id)

@@ -18,6 +18,15 @@ public class TrackedComputer
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
+    public bool ExcludeFromSync { get; set; }
+
+    public bool HiddenFromTable { get; set; }
+
+    public bool IsMobileDevice { get; set; }
+
+    [MaxLength(40)]
+    public string AssetCategory { get; set; } = "Computer";
+
     public DateTime? DeletedAtUtc { get; set; }
 
     public ICollection<CatEtLicense> CatEtLicenses { get; set; } = new List<CatEtLicense>();
