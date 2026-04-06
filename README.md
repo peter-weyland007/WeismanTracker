@@ -29,6 +29,26 @@ WeismanTracker is a new .NET 11 Blazor application scaffolded with:
   - `GET/POST /api/catet/computers`
   - `GET/POST /api/catet/licenses`
 
+## Recent release notes
+
+### 2026-04-06 — Integrations + scalable asset tables
+
+- Added **Integration Settings** UI for Ninja + Microsoft configuration and sync controls.
+- Added background **resource sync pipeline** with per-source status breakdown:
+  - Graph Users
+  - Graph Devices
+  - Intune Managed Devices
+  - Azure Virtual Machines
+- Added entity/resource reference model so each person/computer can track which external resources exist and which are linked.
+- Added **auto-create on sync** behavior for missing local entities:
+  - Microsoft users create `TrackedPeople`
+  - Microsoft/Intune/Ninja devices create `TrackedComputers`
+- Added sync status persistence and API surface for run status, counts, and per-source detail.
+- Upgraded CAT ET People/Computers to **server-side pagination**.
+- Added People/Computers **search, sort, and filters**:
+  - People: sort by name/email/created, filter with/without email
+  - Computers: sort by hostname/asset/assignee/created, filter assigned/unassigned
+
 ## Build
 
 ```bash
