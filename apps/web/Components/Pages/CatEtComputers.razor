@@ -42,12 +42,20 @@
             <MudItem xs="12" md="3">
                 <MudTextField @bind-Value="_editAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
             </MudItem>
-            <MudItem xs="12" md="4">
+            <MudItem xs="12" md="3">
                 <MudSelect T="int?" @bind-Value="_editPersonId" Label="Assigned User (optional)" Variant="Variant.Outlined">
                     <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
                     @foreach (var person in _people)
                     {
                         <MudSelectItem Value="@((int?)person.Id)">@person.FullName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudSelect T="string" @bind-Value="_editCategory" Label="Category" Variant="Variant.Outlined">
+                    @foreach (var category in _assignableCategories)
+                    {
+                        <MudSelectItem Value="@category">@category</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
@@ -94,20 +102,6 @@
                 <MudSelectItem Value='@("visible")'>Visible only</MudSelectItem>
                 <MudSelectItem Value='@("all")'>All</MudSelectItem>
                 <MudSelectItem Value='@("hidden")'>Hidden only</MudSelectItem>
-                <MudSelectItem Value='@("mobile")'>Mobile only</MudSelectItem>
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="12" md="3">
-            <MudSelect T="string"
-                       Value="_categoryFilter"
-                       ValueChanged="OnCategoryFilterChanged"
-                       Label="Asset category"
-                       Variant="Variant.Outlined"
-                       Margin="Margin.Dense">
-                @foreach (var category in _assetCategories)
-                {
-                    <MudSelectItem Value="@category">@category</MudSelectItem>
-                }
             </MudSelect>
         </MudItem>
     </MudGrid>
@@ -145,18 +139,7 @@
             </MudTd>
             <MudTd>@context.AssetTag</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonName) ? "Unassigned" : context.TrackedPersonName)</MudTd>
-            <MudTd>
-                <MudSelect T="string"
-                           Dense="true"
-                           Value="@context.AssetCategory"
-                           ValueChanged="@(value => SetAssetCategoryAsync(context, value))"
-                           Variant="Variant.Outlined">
-                    @foreach (var category in _assignableCategories)
-                    {
-                        <MudSelectItem Value="@category">@category</MudSelectItem>
-                    }
-                </MudSelect>
-            </MudTd>
+            <MudTd>@context.AssetCategory</MudTd>
             <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
             <MudTd>
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
@@ -185,11 +168,7 @@
     private string _searchText = string.Empty;
     private string _assignmentFilter = "all";
     private string _visibilityFilter = "visible";
-    private string _categoryFilter = "all";
     private int _rowsPerPage = 25;
-
-    private static readonly string[] _assetCategories = ["all", "Computer", "Mobile Device", "Phone", "Tablet", "Other Device"];
-    private static readonly string[] _assignableCategories = ["Computer", "Mobile Device", "Phone", "Tablet", "Other Device"];
 
     private string _newHostname = string.Empty;
     private string _newAssetTag = string.Empty;
@@ -199,6 +178,9 @@
     private string _editHostname = string.Empty;
     private string _editAssetTag = string.Empty;
     private int? _editPersonId;
+    private string _editCategory = "Computer";
+
+    private static readonly string[] _assignableCategories = ["Computer", "Phone", "Tablet", "Other Device"];
 
     protected override async Task OnInitializedAsync()
     {
@@ -222,7 +204,7 @@
             sortDir: sortDir,
             filter: _assignmentFilter,
             visibility: _visibilityFilter,
-            category: _categoryFilter);
+            category: "Computer");
 
         _isLoading = false;
 
@@ -255,16 +237,6 @@
     private async Task OnVisibilityFilterChanged(string value)
     {
         _visibilityFilter = string.IsNullOrWhiteSpace(value) ? "visible" : value;
-        if (_computersTable is not null)
-        {
-            _computersTable.NavigateTo(0);
-            await _computersTable.ReloadServerData();
-        }
-    }
-
-    private async Task OnCategoryFilterChanged(string value)
-    {
-        _categoryFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
         if (_computersTable is not null)
         {
             _computersTable.NavigateTo(0);
@@ -322,6 +294,7 @@
         _editHostname = computer.Hostname;
         _editAssetTag = computer.AssetTag;
         _editPersonId = computer.TrackedPersonId;
+        _editCategory = string.IsNullOrWhiteSpace(computer.AssetCategory) ? "Computer" : computer.AssetCategory;
     }
 
     private void CancelEdit()
@@ -330,6 +303,7 @@
         _editHostname = string.Empty;
         _editAssetTag = string.Empty;
         _editPersonId = null;
+        _editCategory = "Computer";
     }
 
     private async Task SaveEditAsync()
@@ -341,12 +315,22 @@
         }
 
         _isSaving = true;
-        var (success, error) = await Api.UpdateComputerAsync(_editingComputerId.Value, new CreateTrackedComputerRequest(_editHostname.Trim(), _editAssetTag.Trim(), _editPersonId));
-        _isSaving = false;
-
+        var computerId = _editingComputerId.Value;
+        var (success, error) = await Api.UpdateComputerAsync(computerId, new CreateTrackedComputerRequest(_editHostname.Trim(), _editAssetTag.Trim(), _editPersonId));
         if (!success)
         {
+            _isSaving = false;
             Snackbar.Add(error ?? "Failed to update computer.", Severity.Error);
+            return;
+        }
+
+        var normalizedCategory = string.IsNullOrWhiteSpace(_editCategory) ? "Computer" : _editCategory;
+        var (flagsSuccess, flagsError) = await Api.UpdateComputerFlagsAsync(computerId, new UpdateTrackedComputerFlagsRequest(null, null, normalizedCategory));
+        _isSaving = false;
+
+        if (!flagsSuccess)
+        {
+            Snackbar.Add(flagsError ?? "Failed to update category.", Severity.Error);
             return;
         }
 
@@ -386,27 +370,6 @@
 
         await ReloadComputersTableAsync();
         Snackbar.Add(computer.HiddenFromTable ? "Computer is visible again." : "Computer hidden from table.", Severity.Success);
-    }
-
-    private async Task SetAssetCategoryAsync(TrackedComputerDto computer, string category)
-    {
-        if (string.IsNullOrWhiteSpace(category) || string.Equals(computer.AssetCategory, category, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        _isSaving = true;
-        var (success, error) = await Api.UpdateComputerFlagsAsync(computer.Id, new UpdateTrackedComputerFlagsRequest(null, null, category));
-        _isSaving = false;
-
-        if (!success)
-        {
-            Snackbar.Add(error ?? "Failed to update asset category.", Severity.Error);
-            return;
-        }
-
-        await ReloadComputersTableAsync();
-        Snackbar.Add($"Moved to {category} category.", Severity.Success);
     }
 
     private async Task DeleteComputerAsync(int id)

@@ -570,6 +570,7 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
     var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
     var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
     var normalizedVisibility = string.IsNullOrWhiteSpace(visibility) ? "visible" : visibility.Trim().ToLowerInvariant();
+    var normalizedCategoryFilter = string.IsNullOrWhiteSpace(category) ? null : category.Trim().ToLowerInvariant();
     var normalizedCategory = NormalizeAssetCategory(category);
     var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "hostname" : sortBy.Trim().ToLowerInvariant();
     var desc = string.Equals(sortDir?.Trim(), "desc", StringComparison.OrdinalIgnoreCase);
@@ -603,7 +604,15 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
         _ => query.Where(c => !c.HiddenFromTable)
     };
 
-    if (!string.IsNullOrWhiteSpace(normalizedCategory) && !string.Equals(normalizedCategory, "all", StringComparison.OrdinalIgnoreCase))
+    if (string.Equals(normalizedCategoryFilter, "mobile", StringComparison.OrdinalIgnoreCase))
+    {
+        query = query.Where(c => c.AssetCategory == "Phone" || c.AssetCategory == "Tablet");
+    }
+    else if (string.Equals(normalizedCategoryFilter, "other", StringComparison.OrdinalIgnoreCase))
+    {
+        query = query.Where(c => c.AssetCategory != "Computer" && c.AssetCategory != "Phone" && c.AssetCategory != "Tablet");
+    }
+    else if (!string.IsNullOrWhiteSpace(normalizedCategory) && !string.Equals(normalizedCategory, "all", StringComparison.OrdinalIgnoreCase))
     {
         query = query.Where(c => c.AssetCategory == normalizedCategory);
     }
@@ -1463,6 +1472,17 @@ void EnsureTrackedComputerSyncControlColumns(AppDbContext db)
         addCategory.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"AssetCategory\" TEXT NOT NULL DEFAULT 'Computer';";
         addCategory.ExecuteNonQuery();
     }
+
+    using var normalizeCategory = connection.CreateCommand();
+    normalizeCategory.CommandText = @"
+UPDATE ""TrackedComputers""
+SET ""AssetCategory"" = CASE
+    WHEN ""AssetCategory"" IS NULL OR TRIM(""AssetCategory"") = '' THEN 'Computer'
+    WHEN ""AssetCategory"" = 'Mobile Device' THEN 'Other Device'
+    WHEN ""AssetCategory"" IN ('Computer', 'Phone', 'Tablet', 'Other Device') THEN ""AssetCategory""
+    ELSE 'Other Device'
+END;";
+    normalizeCategory.ExecuteNonQuery();
 }
 
 void EnsureEntityResourceCoverageSchema(AppDbContext db)
@@ -1626,10 +1646,10 @@ string? NormalizeAssetCategory(string? raw)
     return raw.Trim().ToLowerInvariant() switch
     {
         "computer" => "Computer",
-        "mobile" => "Mobile Device",
-        "mobiledevice" => "Mobile Device",
-        "mobile device" => "Mobile Device",
-        "mobile devices" => "Mobile Device",
+        "mobile" => "Other Device",
+        "mobiledevice" => "Other Device",
+        "mobile device" => "Other Device",
+        "mobile devices" => "Other Device",
         "phone" => "Phone",
         "tablet" => "Tablet",
         "other" => "Other Device",

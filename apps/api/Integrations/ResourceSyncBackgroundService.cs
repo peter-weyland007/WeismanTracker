@@ -142,6 +142,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                         }
 
                         var isMobileHint = IsMobileDeviceHint(device.Os, device.DeviceName, device.Hostname);
+                        var mobileCategoryHint = InferMobileCategoryHint(device.Os, device.DeviceName, device.Hostname);
                         var matchedEntityId = await matcher.MatchComputerEntityIdFromNinjaAsync(device, cancellationToken);
                         int? entityId;
                         if (matchedEntityId is not null)
@@ -159,6 +160,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 serialOrAsset: device.SerialNumber,
                                 machineId: null,
                                 isMobileHint: isMobileHint,
+                                mobileCategoryHint: mobileCategoryHint,
                                 cancellationToken);
 
                             if (entityId is not null)
@@ -172,7 +174,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                             continue;
                         }
 
-                        if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, cancellationToken))
+                        if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, mobileCategoryHint, cancellationToken))
                         {
                             continue;
                         }
@@ -352,6 +354,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                             }
 
                             var isMobileHint = IsMobileDeviceHint(device.DisplayName);
+                            var mobileCategoryHint = InferMobileCategoryHint(device.DisplayName);
                             var matchedEntityId = await matcher.MatchComputerEntityIdFromGraphDeviceAsync(device, cancellationToken);
                             int? entityId;
                             if (matchedEntityId is not null)
@@ -369,6 +372,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                     serialOrAsset: device.SerialNumber,
                                     machineId: device.DeviceId,
                                     isMobileHint: isMobileHint,
+                                    mobileCategoryHint: mobileCategoryHint,
                                     cancellationToken);
 
                                 if (entityId is not null)
@@ -382,7 +386,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, cancellationToken))
+                            if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, mobileCategoryHint, cancellationToken))
                             {
                                 continue;
                             }
@@ -432,6 +436,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                             }
 
                             var isMobileHint = IsMobileDeviceHint(device.DeviceName);
+                            var mobileCategoryHint = InferMobileCategoryHint(device.DeviceName);
                             var matchedEntityId = await matcher.MatchComputerEntityIdFromIntuneAsync(device, cancellationToken);
                             int? entityId;
                             if (matchedEntityId is not null)
@@ -449,6 +454,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                     serialOrAsset: device.SerialNumber,
                                     machineId: device.AzureAdDeviceId,
                                     isMobileHint: isMobileHint,
+                                    mobileCategoryHint: mobileCategoryHint,
                                     cancellationToken);
 
                                 if (entityId is not null)
@@ -462,7 +468,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, cancellationToken))
+                            if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, mobileCategoryHint, cancellationToken))
                             {
                                 continue;
                             }
@@ -512,6 +518,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                             }
 
                             var isMobileHint = IsMobileDeviceHint(vm.Name);
+                            var mobileCategoryHint = InferMobileCategoryHint(vm.Name);
                             var matchedEntityId = await matcher.MatchComputerEntityIdFromAzureVmAsync(vm, cancellationToken);
                             int? entityId;
                             if (matchedEntityId is not null)
@@ -529,6 +536,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                     serialOrAsset: vm.VmId,
                                     machineId: vm.VmId,
                                     isMobileHint: isMobileHint,
+                                    mobileCategoryHint: mobileCategoryHint,
                                     cancellationToken);
 
                                 if (entityId is not null)
@@ -542,7 +550,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                                 continue;
                             }
 
-                            if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, cancellationToken))
+                            if (await ShouldSkipComputerReferenceAsync(db, entityId.Value, isMobileHint, mobileCategoryHint, cancellationToken))
                             {
                                 continue;
                             }
@@ -650,6 +658,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         string? serialOrAsset,
         string? machineId,
         bool isMobileHint,
+        string? mobileCategoryHint,
         CancellationToken cancellationToken)
     {
         var normalizedAssetCandidates = new[] { serialOrAsset, machineId }
@@ -680,9 +689,11 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                         existingByAsset.IsMobileDevice = true;
                     }
 
-                    if (string.IsNullOrWhiteSpace(existingByAsset.AssetCategory) || existingByAsset.AssetCategory.Equals("Computer", StringComparison.OrdinalIgnoreCase))
+                    if (string.IsNullOrWhiteSpace(existingByAsset.AssetCategory)
+                        || existingByAsset.AssetCategory.Equals("Computer", StringComparison.OrdinalIgnoreCase)
+                        || existingByAsset.AssetCategory.Equals("Mobile Device", StringComparison.OrdinalIgnoreCase))
                     {
-                        existingByAsset.AssetCategory = "Mobile Device";
+                        existingByAsset.AssetCategory = mobileCategoryHint ?? "Other Device";
                     }
                 }
 
@@ -708,7 +719,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
             Hostname = hostname.Length > 120 ? hostname[..120] : hostname,
             AssetTag = uniqueAsset,
             IsMobileDevice = isMobileHint,
-            AssetCategory = isMobileHint ? "Mobile Device" : "Computer"
+            AssetCategory = isMobileHint ? (mobileCategoryHint ?? "Other Device") : "Computer"
         };
 
         db.TrackedComputers.Add(computer);
@@ -748,7 +759,36 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         return false;
     }
 
-    private static async Task<bool> ShouldSkipComputerReferenceAsync(AppDbContext db, int entityId, bool isMobileHint, CancellationToken cancellationToken)
+    private static string? InferMobileCategoryHint(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var normalized = value.Trim().ToLowerInvariant();
+            if (normalized.Contains("ipad") || normalized.Contains("tablet"))
+            {
+                return "Tablet";
+            }
+
+            if (normalized.Contains("iphone") || normalized.Contains("phone"))
+            {
+                return "Phone";
+            }
+
+            if (normalized.Contains("android") || normalized.Contains("ios") || normalized.Contains("ipados"))
+            {
+                return "Other Device";
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<bool> ShouldSkipComputerReferenceAsync(AppDbContext db, int entityId, bool isMobileHint, string? mobileCategoryHint, CancellationToken cancellationToken)
     {
         var computer = await db.TrackedComputers.FirstOrDefaultAsync(x => x.Id == entityId, cancellationToken);
         if (computer is null)
@@ -763,9 +803,11 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                 computer.IsMobileDevice = true;
             }
 
-            if (string.IsNullOrWhiteSpace(computer.AssetCategory) || computer.AssetCategory.Equals("Computer", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(computer.AssetCategory)
+                || computer.AssetCategory.Equals("Computer", StringComparison.OrdinalIgnoreCase)
+                || computer.AssetCategory.Equals("Mobile Device", StringComparison.OrdinalIgnoreCase))
             {
-                computer.AssetCategory = "Mobile Device";
+                computer.AssetCategory = mobileCategoryHint ?? "Other Device";
             }
         }
 
