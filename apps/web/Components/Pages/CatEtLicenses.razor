@@ -28,17 +28,33 @@
     </MudItem>
 </MudGrid>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
-    <MudText Typo="Typo.h6" Class="mb-3">Add License Record</MudText>
-    <MudGrid>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="NewSerialNumberInput" Immediate="true" Label="Serial Number" Placeholder="EA021234" HelperText="Format: AA123456" Variant="Variant.Outlined" Required="true" />
+<MudPaper Class="pa-4 mb-4 people-form-card" Elevation="1">
+    <div class="people-form-header">
+        <div>
+            <MudText Typo="Typo.h6">@(_editingLicenseId is null ? "Add License Record" : "Edit Activation Key")</MudText>
+            <MudText Typo="Typo.body2" Class="text-secondary mb-4">@(_editingLicenseId is null ? "Create a new activation key record and optionally assign it to a computer." : "Update the activation key in the same form instead of opening a second card.")</MudText>
+        </div>
+        @if (_editingLicenseId is not null)
+        {
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small">Editing record</MudChip>
+        }
+    </div>
+    <MudGrid Spacing="3" Class="people-form-grid">
+        <MudItem xs="12" sm="6" lg="3">
+            @if (_editingLicenseId is null)
+            {
+                <MudTextField @bind-Value="NewSerialNumberInput" Immediate="true" Label="Serial Number" Placeholder="EA021234" HelperText="Format: AA123456" Variant="Variant.Outlined" Required="true" />
+            }
+            else
+            {
+                <MudTextField Value="@_editingSerialNumber" Label="Serial Number" Variant="Variant.Outlined" ReadOnly="true" HelperText="Serial number is fixed for an existing record" />
+            }
         </MudItem>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="NewActivationIdInput" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="LicenseFormActivationId" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" md="4">
-            <MudSelect T="int?" @bind-Value="_selectedComputerId" Label="Computer (optional)" Variant="Variant.Outlined">
+        <MudItem xs="12" sm="6" lg="4">
+            <MudSelect T="int?" @bind-Value="LicenseFormComputerId" Label="Computer (optional)" Variant="Variant.Outlined">
                 <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
                 @foreach (var computer in _computers)
                 {
@@ -46,8 +62,18 @@
                 }
             </MudSelect>
         </MudItem>
-        <MudItem xs="12" md="2" Class="d-flex align-end">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateAsync" Disabled="_isSaving">Save</MudButton>
+        <MudItem xs="12" sm="6" lg="2">
+            <div class="people-form-actions">
+                @if (_editingLicenseId is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Default" Class="people-form-secondary-action" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="SaveEditAsync" Disabled="_isSaving">Save changes</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="CreateAsync" Disabled="_isSaving">Add key</MudButton>
+                }
+            </div>
         </MudItem>
     </MudGrid>
 </MudPaper>
@@ -67,34 +93,6 @@
     </MudGrid>
 
 </MudPaper>
-
-@if (_editingLicenseId is not null)
-{
-    <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudText Typo="Typo.h6" Class="mb-3">Edit Activation Key</MudText>
-        <MudGrid>
-            <MudItem xs="12" md="4">
-                <MudTextField Value="@_editingSerialNumber" Label="Serial Number" Variant="Variant.Outlined" ReadOnly="true" />
-            </MudItem>
-            <MudItem xs="12" md="4">
-                <MudTextField @bind-Value="EditActivationIdInput" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
-            </MudItem>
-            <MudItem xs="12" md="4">
-                <MudSelect T="int?" @bind-Value="_editTrackedComputerId" Label="Computer (optional)" Variant="Variant.Outlined">
-                    <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
-                    @foreach (var computer in _computers)
-                    {
-                        <MudSelectItem Value="@((int?)computer.Id)">@computer.Hostname (@computer.AssetTag) - @computer.TrackedPersonName</MudSelectItem>
-                    }
-                </MudSelect>
-            </MudItem>
-            <MudItem xs="12" md="4" Class="d-flex align-end gap-2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
-            </MudItem>
-        </MudGrid>
-    </MudPaper>
-}
 
 <MudPaper Class="pa-2" Elevation="1">
     <div class="d-flex align-center justify-space-between px-2 pt-2 pb-1 gap-4 flex-wrap">
@@ -216,6 +214,38 @@
     {
         get => _editActivationId;
         set => _editActivationId = NormalizeActivationId(value);
+    }
+
+    private string LicenseFormActivationId
+    {
+        get => _editingLicenseId is null ? NewActivationIdInput : EditActivationIdInput;
+        set
+        {
+            if (_editingLicenseId is null)
+            {
+                NewActivationIdInput = value;
+            }
+            else
+            {
+                EditActivationIdInput = value;
+            }
+        }
+    }
+
+    private int? LicenseFormComputerId
+    {
+        get => _editingLicenseId is null ? _selectedComputerId : _editTrackedComputerId;
+        set
+        {
+            if (_editingLicenseId is null)
+            {
+                _selectedComputerId = value;
+            }
+            else
+            {
+                _editTrackedComputerId = value;
+            }
+        }
     }
 
     protected override async Task OnInitializedAsync() => await LoadAsync();

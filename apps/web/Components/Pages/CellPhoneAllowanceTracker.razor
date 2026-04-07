@@ -7,13 +7,22 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Cell Phone Allowance Tracker</MudText>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
-    <MudText Typo="Typo.h6" Class="mb-3">Add Allowance Record</MudText>
-    <MudGrid>
-        <MudItem xs="12" md="3">
+<MudPaper Class="pa-4 mb-4 people-form-card" Elevation="1">
+    <div class="people-form-header">
+        <div>
+            <MudText Typo="Typo.h6">@(_editingAllowanceId is null ? "Add Allowance Record" : "Edit Allowance Record")</MudText>
+            <MudText Typo="Typo.body2" Class="text-secondary mb-4">@(_editingAllowanceId is null ? "Track who receives a mobile allowance and when it was approved." : "Update the allowance record in the same form without opening a second card.")</MudText>
+        </div>
+        @if (_editingAllowanceId is not null)
+        {
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small">Editing record</MudChip>
+        }
+    </div>
+    <MudGrid Spacing="3" Class="people-form-grid">
+        <MudItem xs="12" sm="6" lg="3">
             <MudAutocomplete T="TrackedPersonDto"
-                             Value="_newSelectedPerson"
-                             ValueChanged="OnNewPersonChanged"
+                             Value="AllowanceFormPerson"
+                             ValueChanged="OnAllowancePersonChanged"
                              Label="User"
                              Variant="Variant.Outlined"
                              Required="true"
@@ -26,58 +35,30 @@
                              MaxItems="50"
                              Placeholder="Type to filter users" />
         </MudItem>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="_newMobilePhoneNumber" Label="Mobile phone number" Variant="Variant.Outlined" Required="true" />
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="AllowanceFormMobilePhoneNumber" Label="Mobile phone number" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" md="2" Class="d-flex align-center">
-            <MudSwitch T="bool" @bind-Value="_newAllowanceGranted" Color="Color.Success" Label="Allowance granted" />
+        <MudItem xs="12" sm="6" lg="2" Class="d-flex align-center">
+            <MudSwitch T="bool" @bind-Value="AllowanceFormGranted" Color="Color.Success" Label="Allowance granted" />
         </MudItem>
-        <MudItem xs="12" md="2">
-            <MudDatePicker @bind-Date="_newApprovedAt" Label="Approved date" Variant="Variant.Outlined" Editable="true" DateFormat="yyyy-MM-dd" />
+        <MudItem xs="12" sm="6" lg="2">
+            <MudDatePicker @bind-Date="AllowanceFormApprovedAt" Label="Approved date" Variant="Variant.Outlined" Editable="true" DateFormat="yyyy-MM-dd" />
         </MudItem>
-        <MudItem xs="12" md="2" Class="d-flex align-end">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateAllowanceAsync" Disabled="_isSaving">Add</MudButton>
+        <MudItem xs="12" lg="2">
+            <div class="people-form-actions">
+                @if (_editingAllowanceId is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Default" Class="people-form-secondary-action" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="SaveEditAsync" Disabled="_isSaving">Save changes</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="CreateAllowanceAsync" Disabled="_isSaving">Add allowance</MudButton>
+                }
+            </div>
         </MudItem>
     </MudGrid>
 </MudPaper>
-
-@if (_editingAllowanceId is not null)
-{
-    <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudText Typo="Typo.h6" Class="mb-3">Edit Allowance Record</MudText>
-        <MudGrid>
-            <MudItem xs="12" md="3">
-                <MudAutocomplete T="TrackedPersonDto"
-                                 Value="_editSelectedPerson"
-                                 ValueChanged="OnEditPersonChanged"
-                                 Label="User"
-                                 Variant="Variant.Outlined"
-                                 Required="true"
-                                 SearchFunc="SearchPeopleAsync"
-                                 ToStringFunc="FormatPersonOption"
-                                 Clearable="true"
-                                 ResetValueOnEmptyText="true"
-                                 CoerceText="false"
-                                 Dense="true"
-                                 MaxItems="50"
-                                 Placeholder="Type to filter users" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudTextField @bind-Value="_editMobilePhoneNumber" Label="Mobile phone number" Variant="Variant.Outlined" Required="true" />
-            </MudItem>
-            <MudItem xs="12" md="2" Class="d-flex align-center">
-                <MudSwitch T="bool" @bind-Value="_editAllowanceGranted" Color="Color.Success" Label="Allowance granted" />
-            </MudItem>
-            <MudItem xs="12" md="2">
-                <MudDatePicker @bind-Date="_editApprovedAt" Label="Approved date" Variant="Variant.Outlined" Editable="true" DateFormat="yyyy-MM-dd" />
-            </MudItem>
-            <MudItem xs="12" md="2" Class="d-flex align-end gap-2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
-            </MudItem>
-        </MudGrid>
-    </MudPaper>
-}
 
 <MudPaper Class="pa-2" Elevation="1">
     <MudGrid Class="pa-2">
@@ -124,7 +105,7 @@
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd>@context.TrackedPersonName</MudTd>
+            <MudTd>@FormatAllowancePerson(context)</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonEmail) ? "-" : context.TrackedPersonEmail)</MudTd>
             <MudTd>@context.MobilePhoneNumber</MudTd>
             <MudTd>
@@ -172,9 +153,80 @@
     private bool _editAllowanceGranted;
     private DateTime? _editApprovedAt;
 
+    private TrackedPersonDto? AllowanceFormPerson
+    {
+        get => _editingAllowanceId is null ? _newSelectedPerson : _editSelectedPerson;
+        set
+        {
+            if (_editingAllowanceId is null)
+            {
+                _newSelectedPerson = value;
+                _newTrackedPersonId = value?.Id;
+                _newMobilePhoneNumber = value?.MobilePhone ?? string.Empty;
+            }
+            else
+            {
+                _editSelectedPerson = value;
+                _editTrackedPersonId = value?.Id;
+                _editMobilePhoneNumber = value?.MobilePhone ?? string.Empty;
+            }
+        }
+    }
+
+    private string AllowanceFormMobilePhoneNumber
+    {
+        get => _editingAllowanceId is null ? _newMobilePhoneNumber : _editMobilePhoneNumber;
+        set
+        {
+            if (_editingAllowanceId is null)
+            {
+                _newMobilePhoneNumber = value;
+            }
+            else
+            {
+                _editMobilePhoneNumber = value;
+            }
+        }
+    }
+
+    private bool AllowanceFormGranted
+    {
+        get => _editingAllowanceId is null ? _newAllowanceGranted : _editAllowanceGranted;
+        set
+        {
+            if (_editingAllowanceId is null)
+            {
+                _newAllowanceGranted = value;
+            }
+            else
+            {
+                _editAllowanceGranted = value;
+            }
+        }
+    }
+
+    private DateTime? AllowanceFormApprovedAt
+    {
+        get => _editingAllowanceId is null ? _newApprovedAt : _editApprovedAt;
+        set
+        {
+            if (_editingAllowanceId is null)
+            {
+                _newApprovedAt = value;
+            }
+            else
+            {
+                _editApprovedAt = value;
+            }
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        _people = (await Api.GetPeopleAsync()).OrderBy(x => x.FullName).ToList();
+        _people = (await Api.GetPeopleAsync())
+            .Where(x => !x.IsServiceAccount)
+            .OrderBy(x => x.FullName)
+            .ToList();
     }
 
     private async Task<TableData<CellPhoneAllowanceDto>> LoadAllowancesServerData(TableState state, CancellationToken cancellationToken)
@@ -247,6 +299,7 @@
             .Where(person =>
                 person.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                 (!string.IsNullOrWhiteSpace(person.Email) && person.Email.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(person.EmployeeNumber) && person.EmployeeNumber.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrWhiteSpace(person.MobilePhone) && person.MobilePhone.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrWhiteSpace(person.BusinessPhone) && person.BusinessPhone.Contains(term, StringComparison.OrdinalIgnoreCase)))
             .Take(50);
@@ -261,24 +314,26 @@
             return string.Empty;
         }
 
+        if (!string.IsNullOrWhiteSpace(person.EmployeeNumber))
+        {
+            return $"{person.FullName} ({person.EmployeeNumber})";
+        }
+
         return string.IsNullOrWhiteSpace(person.Email)
             ? person.FullName
             : $"{person.FullName} ({person.Email})";
     }
 
-    private Task OnNewPersonChanged(TrackedPersonDto? person)
+    private string FormatAllowancePerson(CellPhoneAllowanceDto allowance)
     {
-        _newSelectedPerson = person;
-        _newTrackedPersonId = person?.Id;
-        _newMobilePhoneNumber = person?.MobilePhone ?? string.Empty;
-        return Task.CompletedTask;
+        return string.IsNullOrWhiteSpace(allowance.TrackedPersonEmployeeNumber)
+            ? allowance.TrackedPersonName
+            : $"{allowance.TrackedPersonName} ({allowance.TrackedPersonEmployeeNumber})";
     }
 
-    private Task OnEditPersonChanged(TrackedPersonDto? person)
+    private Task OnAllowancePersonChanged(TrackedPersonDto? person)
     {
-        _editSelectedPerson = person;
-        _editTrackedPersonId = person?.Id;
-        _editMobilePhoneNumber = person?.MobilePhone ?? string.Empty;
+        AllowanceFormPerson = person;
         return Task.CompletedTask;
     }
 

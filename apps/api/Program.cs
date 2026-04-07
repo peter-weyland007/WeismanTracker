@@ -463,7 +463,8 @@ app.MapGet("/api/allowances/cell-phone", async (AppDbContext db, int page = 1, i
         query = query.Where(x =>
             x.MobilePhoneNumber.ToLower().Contains(searchTerm)
             || x.TrackedPerson!.FullName.ToLower().Contains(searchTerm)
-            || (x.TrackedPerson.Email != null && x.TrackedPerson.Email.ToLower().Contains(searchTerm)));
+            || (x.TrackedPerson.Email != null && x.TrackedPerson.Email.ToLower().Contains(searchTerm))
+            || (x.TrackedPerson.EmployeeNumber != null && x.TrackedPerson.EmployeeNumber.ToLower().Contains(searchTerm)));
     }
 
     query = normalizedFilter switch
@@ -496,6 +497,7 @@ app.MapGet("/api/allowances/cell-phone", async (AppDbContext db, int page = 1, i
             x.TrackedPersonId,
             x.TrackedPerson!.FullName,
             x.TrackedPerson.Email,
+            x.TrackedPerson.EmployeeNumber,
             x.MobilePhoneNumber,
             x.AllowanceGranted,
             x.ApprovedAtUtc,
@@ -535,6 +537,7 @@ app.MapPost("/api/allowances/cell-phone", async (CreateCellPhoneAllowanceRequest
         allowance.TrackedPersonId,
         person.FullName,
         person.Email,
+        person.EmployeeNumber,
         allowance.MobilePhoneNumber,
         allowance.AllowanceGranted,
         allowance.ApprovedAtUtc,
@@ -572,6 +575,7 @@ app.MapPut("/api/allowances/cell-phone/{id:int}", async (int id, CreateCellPhone
         allowance.TrackedPersonId,
         person.FullName,
         person.Email,
+        person.EmployeeNumber,
         allowance.MobilePhoneNumber,
         allowance.AllowanceGranted,
         allowance.ApprovedAtUtc,
@@ -609,6 +613,7 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
         query = query.Where(p =>
             p.FullName.ToLower().Contains(searchTerm)
             || (p.Email != null && p.Email.ToLower().Contains(searchTerm))
+            || (p.EmployeeNumber != null && p.EmployeeNumber.ToLower().Contains(searchTerm))
             || (p.MobilePhone != null && p.MobilePhone.ToLower().Contains(searchTerm))
             || (p.BusinessPhone != null && p.BusinessPhone.ToLower().Contains(searchTerm)));
     }
@@ -617,6 +622,8 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     {
         "withemail" => query.Where(p => p.Email != null && p.Email != ""),
         "withoutemail" => query.Where(p => p.Email == null || p.Email == ""),
+        "human" => query.Where(p => !p.IsServiceAccount),
+        "service" => query.Where(p => p.IsServiceAccount),
         _ => query
     };
 
@@ -624,6 +631,10 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     {
         ("email", false) => query.OrderBy(p => p.Email == null).ThenBy(p => p.Email).ThenBy(p => p.Id),
         ("email", true) => query.OrderByDescending(p => p.Email == null).ThenByDescending(p => p.Email).ThenByDescending(p => p.Id),
+        ("serviceaccount", false) => query.OrderBy(p => p.IsServiceAccount).ThenBy(p => p.FullName).ThenBy(p => p.Id),
+        ("serviceaccount", true) => query.OrderByDescending(p => p.IsServiceAccount).ThenByDescending(p => p.FullName).ThenByDescending(p => p.Id),
+        ("employeenumber", false) => query.OrderBy(p => p.EmployeeNumber == null).ThenBy(p => p.EmployeeNumber).ThenBy(p => p.Id),
+        ("employeenumber", true) => query.OrderByDescending(p => p.EmployeeNumber == null).ThenByDescending(p => p.EmployeeNumber).ThenByDescending(p => p.Id),
         ("mobilephone", false) => query.OrderBy(p => p.MobilePhone == null).ThenBy(p => p.MobilePhone).ThenBy(p => p.Id),
         ("mobilephone", true) => query.OrderByDescending(p => p.MobilePhone == null).ThenByDescending(p => p.MobilePhone).ThenByDescending(p => p.Id),
         ("businessphone", false) => query.OrderBy(p => p.BusinessPhone == null).ThenBy(p => p.BusinessPhone).ThenBy(p => p.Id),
@@ -638,7 +649,7 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     var people = await query
         .Skip((safePage - 1) * safePageSize)
         .Take(safePageSize)
-        .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.MobilePhone, p.BusinessPhone, p.CreatedAtUtc))
+        .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.EmployeeNumber, p.MobilePhone, p.BusinessPhone, p.IsServiceAccount, p.CreatedAtUtc))
         .ToListAsync();
 
     return Results.Ok(new PagedResultDto<TrackedPersonDto>(people, totalCount, safePage, safePageSize));
@@ -655,8 +666,10 @@ app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppD
     {
         FullName = request.FullName.Trim(),
         Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
+        EmployeeNumber = string.IsNullOrWhiteSpace(request.EmployeeNumber) ? null : request.EmployeeNumber.Trim(),
         MobilePhone = string.IsNullOrWhiteSpace(request.MobilePhone) ? null : request.MobilePhone.Trim(),
         BusinessPhone = string.IsNullOrWhiteSpace(request.BusinessPhone) ? null : request.BusinessPhone.Trim(),
+        IsServiceAccount = request.IsServiceAccount,
         CreatedAtUtc = DateTime.UtcNow
     };
 
@@ -671,7 +684,7 @@ app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppD
         return Results.Conflict(new { message = "Email already exists." });
     }
 
-    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.MobilePhone, person.BusinessPhone, person.CreatedAtUtc));
+    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.EmployeeNumber, person.MobilePhone, person.BusinessPhone, person.IsServiceAccount, person.CreatedAtUtc));
 });
 
 app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonRequest request, AppDbContext db) =>
@@ -689,8 +702,10 @@ app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonReque
 
     person.FullName = request.FullName.Trim();
     person.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+    person.EmployeeNumber = string.IsNullOrWhiteSpace(request.EmployeeNumber) ? null : request.EmployeeNumber.Trim();
     person.MobilePhone = string.IsNullOrWhiteSpace(request.MobilePhone) ? null : request.MobilePhone.Trim();
     person.BusinessPhone = string.IsNullOrWhiteSpace(request.BusinessPhone) ? null : request.BusinessPhone.Trim();
+    person.IsServiceAccount = request.IsServiceAccount;
 
     try
     {
@@ -701,7 +716,7 @@ app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonReque
         return Results.Conflict(new { message = "Email already exists." });
     }
 
-    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.MobilePhone, person.BusinessPhone, person.CreatedAtUtc));
+    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.EmployeeNumber, person.MobilePhone, person.BusinessPhone, person.IsServiceAccount, person.CreatedAtUtc));
 });
 
 app.MapDelete("/api/catet/people/{id:int}", async (int id, AppDbContext db) =>
@@ -1640,6 +1655,20 @@ void EnsureTrackedPersonPhoneColumns(AppDbContext db)
         using var addBusinessPhone = connection.CreateCommand();
         addBusinessPhone.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"BusinessPhone\" TEXT NULL;";
         addBusinessPhone.ExecuteNonQuery();
+    }
+
+    if (!existingColumns.Contains("EmployeeNumber"))
+    {
+        using var addEmployeeNumber = connection.CreateCommand();
+        addEmployeeNumber.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"EmployeeNumber\" TEXT NULL;";
+        addEmployeeNumber.ExecuteNonQuery();
+    }
+
+    if (!existingColumns.Contains("IsServiceAccount"))
+    {
+        using var addIsServiceAccount = connection.CreateCommand();
+        addIsServiceAccount.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"IsServiceAccount\" INTEGER NOT NULL DEFAULT 0;";
+        addIsServiceAccount.ExecuteNonQuery();
     }
 }
 

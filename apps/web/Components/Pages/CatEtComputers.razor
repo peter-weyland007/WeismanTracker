@@ -7,19 +7,28 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">CAT ET - Computers</MudText>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
-    <MudText Typo="Typo.h6" Class="mb-3">Add Computer</MudText>
-    <MudGrid>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="_newHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
+<MudPaper Class="pa-4 mb-4 people-form-card" Elevation="1">
+    <div class="people-form-header">
+        <div>
+            <MudText Typo="Typo.h6">@(_editingComputerId is null ? "Add Computer" : "Edit Computer")</MudText>
+            <MudText Typo="Typo.body2" Class="text-secondary mb-4">@(_editingComputerId is null ? "Create a computer record here, then assign it to a person if needed." : "Update the computer details here without jumping to a second card.")</MudText>
+        </div>
+        @if (_editingComputerId is not null)
+        {
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small">Editing record</MudChip>
+        }
+    </div>
+    <MudGrid Spacing="3" Class="people-form-grid">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="ComputerFormHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="_newAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="ComputerFormAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" md="4">
+        <MudItem xs="12" sm="6" lg="3">
             <MudAutocomplete T="TrackedPersonDto"
-                             Value="_selectedPerson"
-                             ValueChanged="OnSelectedPersonChanged"
+                             Value="ComputerFormPerson"
+                             ValueChanged="OnComputerPersonChanged"
                              Label="Assigned User (optional)"
                              Variant="Variant.Outlined"
                              SearchFunc="SearchPeopleAsync"
@@ -31,53 +40,36 @@
                              MaxItems="50"
                              Placeholder="Type to filter users" />
         </MudItem>
-        <MudItem xs="12" md="2" Class="d-flex align-end">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateComputerAsync" Disabled="_isSaving">Add</MudButton>
-        </MudItem>
-    </MudGrid>
-</MudPaper>
-
-@if (_editingComputerId is not null)
-{
-    <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudText Typo="Typo.h6" Class="mb-3">Edit Computer</MudText>
-        <MudGrid>
-            <MudItem xs="12" md="3">
-                <MudTextField @bind-Value="_editHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudTextField @bind-Value="_editAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudAutocomplete T="TrackedPersonDto"
-                                 Value="_editSelectedPerson"
-                                 ValueChanged="OnEditPersonChanged"
-                                 Label="Assigned User (optional)"
-                                 Variant="Variant.Outlined"
-                                 SearchFunc="SearchPeopleAsync"
-                                 ToStringFunc="FormatPersonOption"
-                                 Clearable="true"
-                                 ResetValueOnEmptyText="true"
-                                 CoerceText="false"
-                                 Dense="true"
-                                 MaxItems="50"
-                                 Placeholder="Type to filter users" />
-            </MudItem>
-            <MudItem xs="12" md="2">
-                <MudSelect T="string" @bind-Value="_editCategory" Label="Category" Variant="Variant.Outlined">
+        <MudItem xs="12" sm="6" lg="3">
+            @if (_editingComputerId is not null)
+            {
+                <MudSelect T="string" @bind-Value="ComputerFormCategory" Label="Category" Variant="Variant.Outlined">
                     @foreach (var category in _assignableCategories)
                     {
                         <MudSelectItem Value="@category">@category</MudSelectItem>
                     }
                 </MudSelect>
-            </MudItem>
-            <MudItem xs="12" md="2" Class="d-flex align-end gap-2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
-            </MudItem>
-        </MudGrid>
-    </MudPaper>
-}
+            }
+            else
+            {
+                <MudTextField Value='@("Computer")' Label="Category" Variant="Variant.Outlined" ReadOnly="true" />
+            }
+        </MudItem>
+        <MudItem xs="12">
+            <div class="people-form-actions">
+                @if (_editingComputerId is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Default" Class="people-form-secondary-action" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="SaveEditAsync" Disabled="_isSaving">Save changes</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="CreateComputerAsync" Disabled="_isSaving">Add computer</MudButton>
+                }
+            </div>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
 
 <MudPaper Class="pa-2" Elevation="1">
     <MudGrid Class="pa-2">
@@ -193,6 +185,68 @@
     private TrackedPersonDto? _editSelectedPerson;
     private int? _editPersonId;
     private string _editCategory = "Computer";
+
+    private string ComputerFormHostname
+    {
+        get => _editingComputerId is null ? _newHostname : _editHostname;
+        set
+        {
+            if (_editingComputerId is null)
+            {
+                _newHostname = value;
+            }
+            else
+            {
+                _editHostname = value;
+            }
+        }
+    }
+
+    private string ComputerFormAssetTag
+    {
+        get => _editingComputerId is null ? _newAssetTag : _editAssetTag;
+        set
+        {
+            if (_editingComputerId is null)
+            {
+                _newAssetTag = value;
+            }
+            else
+            {
+                _editAssetTag = value;
+            }
+        }
+    }
+
+    private TrackedPersonDto? ComputerFormPerson
+    {
+        get => _editingComputerId is null ? _selectedPerson : _editSelectedPerson;
+        set
+        {
+            if (_editingComputerId is null)
+            {
+                _selectedPerson = value;
+                _selectedPersonId = value?.Id;
+            }
+            else
+            {
+                _editSelectedPerson = value;
+                _editPersonId = value?.Id;
+            }
+        }
+    }
+
+    private string ComputerFormCategory
+    {
+        get => _editingComputerId is null ? "Computer" : _editCategory;
+        set
+        {
+            if (_editingComputerId is not null)
+            {
+                _editCategory = value;
+            }
+        }
+    }
 
     private static readonly string[] _assignableCategories = ["Computer", "Phone", "Tablet", "Other Device"];
 
@@ -310,17 +364,9 @@
             : $"{person.FullName} ({person.Email})";
     }
 
-    private Task OnSelectedPersonChanged(TrackedPersonDto? person)
+    private Task OnComputerPersonChanged(TrackedPersonDto? person)
     {
-        _selectedPerson = person;
-        _selectedPersonId = person?.Id;
-        return Task.CompletedTask;
-    }
-
-    private Task OnEditPersonChanged(TrackedPersonDto? person)
-    {
-        _editSelectedPerson = person;
-        _editPersonId = person?.Id;
+        ComputerFormPerson = person;
         return Task.CompletedTask;
     }
 

@@ -2,6 +2,53 @@ html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+.people-form-card {
+    border-radius: 16px;
+}
+
+.people-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.people-form-grid {
+    align-items: flex-end;
+}
+
+.people-form-toggle {
+    margin-top: 0.25rem;
+}
+
+.people-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.people-form-action {
+    min-width: 10rem;
+}
+
+.people-form-secondary-action {
+    min-width: 8rem;
+}
+
+@media (max-width: 959.98px) {
+    .people-form-actions {
+        justify-content: stretch;
+    }
+
+    .people-form-action,
+    .people-form-secondary-action {
+        flex: 1 1 100%;
+    }
+}
+
 a, .btn-link {
     color: #006bb7;
 }

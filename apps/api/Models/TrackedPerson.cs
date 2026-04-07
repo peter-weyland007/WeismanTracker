@@ -13,10 +13,15 @@ public class TrackedPerson
     public string? Email { get; set; }
 
     [MaxLength(50)]
+    public string? EmployeeNumber { get; set; }
+
+    [MaxLength(50)]
     public string? MobilePhone { get; set; }
 
     [MaxLength(50)]
     public string? BusinessPhone { get; set; }
+
+    public bool IsServiceAccount { get; set; }
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 

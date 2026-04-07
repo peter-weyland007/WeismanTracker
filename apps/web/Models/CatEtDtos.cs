@@ -1,13 +1,14 @@
 namespace web.Models;
 
-public record TrackedPersonDto(int Id, string FullName, string? Email, string? MobilePhone, string? BusinessPhone, DateTime CreatedAtUtc);
-public record CreateTrackedPersonRequest(string FullName, string? Email, string? MobilePhone, string? BusinessPhone);
+public record TrackedPersonDto(int Id, string FullName, string? Email, string? EmployeeNumber, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount, DateTime CreatedAtUtc);
+public record CreateTrackedPersonRequest(string FullName, string? Email, string? EmployeeNumber, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount);
 
 public record CellPhoneAllowanceDto(
     int Id,
     int TrackedPersonId,
     string TrackedPersonName,
     string? TrackedPersonEmail,
+    string? TrackedPersonEmployeeNumber,
     string MobilePhoneNumber,
     bool AllowanceGranted,
     DateTime? ApprovedAtUtc,

@@ -7,57 +7,57 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">CAT ET - People</MudText>
 
-<MudPaper Class="pa-4 mb-4" Elevation="1">
-    <MudText Typo="Typo.h6" Class="mb-3">Add Person</MudText>
-    <MudGrid>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="_newFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
+<MudPaper Class="pa-4 mb-4 people-form-card" Elevation="1">
+    <div class="people-form-header">
+        <div>
+            <MudText Typo="Typo.h6">@(_editingPersonId is null ? "Add Person" : "Edit Person")</MudText>
+            <MudText Typo="Typo.body2" Class="text-secondary mb-4">@(_editingPersonId is null ? "Keep identity details on the first row and account status/actions on the second." : "Update identity details here before saving changes.")</MudText>
+        </div>
+        @if (_editingPersonId is not null)
+        {
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small">Editing record</MudChip>
+        }
+    </div>
+    <MudGrid Spacing="3" Class="people-form-grid">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="PersonFormFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" md="3">
-            <MudTextField @bind-Value="_newEmail" Label="Email (optional)" Variant="Variant.Outlined" />
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="PersonFormEmail" Label="Email (optional)" Variant="Variant.Outlined" />
         </MudItem>
-        <MudItem xs="12" md="2">
-            <MudTextField @bind-Value="_newMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
+        <MudItem xs="12" sm="6" lg="2">
+            <MudTextField @bind-Value="PersonFormEmployeeNumber" Label="Employee number" Variant="Variant.Outlined" />
         </MudItem>
-        <MudItem xs="12" md="2">
-            <MudTextField @bind-Value="_newBusinessPhone" Label="Business phone" Variant="Variant.Outlined" />
+        <MudItem xs="12" sm="6" lg="2">
+            <MudTextField @bind-Value="PersonFormMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
         </MudItem>
-        <MudItem xs="12" md="2" Class="d-flex align-end">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreatePersonAsync" Disabled="_isSaving">Add</MudButton>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudTextField @bind-Value="PersonFormBusinessPhone" Label="Business phone" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="6" lg="4" Class="d-flex align-center">
+            <MudSwitch T="bool" @bind-Value="PersonFormIsServiceAccount" Color="Color.Warning" Label="Service account" Class="people-form-toggle" />
+        </MudItem>
+        <MudItem xs="12" md="6" lg="8">
+            <div class="people-form-actions">
+                @if (_editingPersonId is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Default" Class="people-form-secondary-action" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="SaveEditAsync" Disabled="_isSaving">Save changes</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="CreatePersonAsync" Disabled="_isSaving">Add person</MudButton>
+                }
+            </div>
         </MudItem>
     </MudGrid>
 </MudPaper>
-
-@if (_editingPersonId is not null)
-{
-    <MudPaper Class="pa-4 mb-4" Elevation="1">
-        <MudText Typo="Typo.h6" Class="mb-3">Edit Person</MudText>
-        <MudGrid>
-            <MudItem xs="12" md="3">
-                <MudTextField @bind-Value="_editFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
-            </MudItem>
-            <MudItem xs="12" md="3">
-                <MudTextField @bind-Value="_editEmail" Label="Email (optional)" Variant="Variant.Outlined" />
-            </MudItem>
-            <MudItem xs="12" md="2">
-                <MudTextField @bind-Value="_editMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
-            </MudItem>
-            <MudItem xs="12" md="2">
-                <MudTextField @bind-Value="_editBusinessPhone" Label="Business phone" Variant="Variant.Outlined" />
-            </MudItem>
-            <MudItem xs="12" md="2" Class="d-flex align-end gap-2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
-                <MudButton Variant="Variant.Text" Color="Color.Default" FullWidth="true" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
-            </MudItem>
-        </MudGrid>
-    </MudPaper>
-}
 
 <MudPaper Class="pa-2" Elevation="1">
     <MudGrid Class="pa-2">
         <MudItem xs="12" md="8">
             <MudTextField @bind-Value="_searchText"
-                          Placeholder="Search name, email, or phone"
+                          Placeholder="Search name, employee number, email, or phone"
                           Variant="Variant.Outlined"
                           Adornment="Adornment.Start"
                           AdornmentIcon="@Icons.Material.Filled.Search"
@@ -68,14 +68,16 @@
         </MudItem>
         <MudItem xs="12" md="4">
             <MudSelect T="string"
-                       Value="_emailFilter"
-                       ValueChanged="OnEmailFilterChanged"
-                       Label="Email filter"
+                       Value="_peopleFilter"
+                       ValueChanged="OnPeopleFilterChanged"
+                       Label="People filter"
                        Variant="Variant.Outlined"
                        Margin="Margin.Dense">
                 <MudSelectItem Value='@("all")'>All people</MudSelectItem>
                 <MudSelectItem Value='@("withEmail")'>With email</MudSelectItem>
                 <MudSelectItem Value='@("withoutEmail")'>Without email</MudSelectItem>
+                <MudSelectItem Value='@("human")'>Human users only</MudSelectItem>
+                <MudSelectItem Value='@("service")'>Service accounts only</MudSelectItem>
             </MudSelect>
         </MudItem>
     </MudGrid>
@@ -90,6 +92,8 @@
         <HeaderContent>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="fullName">Name</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="email">Email</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="employeeNumber">Employee #</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="serviceAccount">Type</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="mobilePhone">Mobile</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="businessPhone">Business</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="createdAt">Created (UTC)</MudTableSortLabel></MudTh>
@@ -98,6 +102,17 @@
         <RowTemplate>
             <MudTd>@context.FullName</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.Email) ? "-" : context.Email)</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.EmployeeNumber) ? "-" : context.EmployeeNumber)</MudTd>
+            <MudTd>
+                @if (context.IsServiceAccount)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning">Service Account</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success">Human</MudChip>
+                }
+            </MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.MobilePhone) ? "-" : context.MobilePhone)</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.BusinessPhone) ? "-" : context.BusinessPhone)</MudTd>
             <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
@@ -123,19 +138,119 @@
     private bool _isSaving;
 
     private string _searchText = string.Empty;
-    private string _emailFilter = "all";
+    private string _peopleFilter = "all";
     private int _rowsPerPage = 25;
 
     private string _newFullName = string.Empty;
     private string _newEmail = string.Empty;
+    private string _newEmployeeNumber = string.Empty;
     private string _newMobilePhone = string.Empty;
     private string _newBusinessPhone = string.Empty;
+    private bool _newIsServiceAccount;
 
     private int? _editingPersonId;
     private string _editFullName = string.Empty;
     private string _editEmail = string.Empty;
+    private string _editEmployeeNumber = string.Empty;
     private string _editMobilePhone = string.Empty;
     private string _editBusinessPhone = string.Empty;
+    private bool _editIsServiceAccount;
+
+    private string PersonFormFullName
+    {
+        get => _editingPersonId is null ? _newFullName : _editFullName;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newFullName = value;
+            }
+            else
+            {
+                _editFullName = value;
+            }
+        }
+    }
+
+    private string PersonFormEmail
+    {
+        get => _editingPersonId is null ? _newEmail : _editEmail;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newEmail = value;
+            }
+            else
+            {
+                _editEmail = value;
+            }
+        }
+    }
+
+    private string PersonFormEmployeeNumber
+    {
+        get => _editingPersonId is null ? _newEmployeeNumber : _editEmployeeNumber;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newEmployeeNumber = value;
+            }
+            else
+            {
+                _editEmployeeNumber = value;
+            }
+        }
+    }
+
+    private string PersonFormMobilePhone
+    {
+        get => _editingPersonId is null ? _newMobilePhone : _editMobilePhone;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newMobilePhone = value;
+            }
+            else
+            {
+                _editMobilePhone = value;
+            }
+        }
+    }
+
+    private string PersonFormBusinessPhone
+    {
+        get => _editingPersonId is null ? _newBusinessPhone : _editBusinessPhone;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newBusinessPhone = value;
+            }
+            else
+            {
+                _editBusinessPhone = value;
+            }
+        }
+    }
+
+    private bool PersonFormIsServiceAccount
+    {
+        get => _editingPersonId is null ? _newIsServiceAccount : _editIsServiceAccount;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newIsServiceAccount = value;
+            }
+            else
+            {
+                _editIsServiceAccount = value;
+            }
+        }
+    }
 
     private async Task<TableData<TrackedPersonDto>> LoadPeopleServerData(TableState state, CancellationToken cancellationToken)
     {
@@ -150,7 +265,7 @@
             search: _searchText,
             sortBy: sortBy,
             sortDir: sortDir,
-            filter: _emailFilter);
+            filter: _peopleFilter);
 
         _isLoading = false;
 
@@ -170,9 +285,9 @@
         }
     }
 
-    private async Task OnEmailFilterChanged(string value)
+    private async Task OnPeopleFilterChanged(string value)
     {
-        _emailFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
+        _peopleFilter = string.IsNullOrWhiteSpace(value) ? "all" : value;
         if (_peopleTable is not null)
         {
             _peopleTable.NavigateTo(0);
@@ -205,8 +320,10 @@
         var (success, error) = await Api.CreatePersonAsync(new CreateTrackedPersonRequest(
             _newFullName.Trim(),
             string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail.Trim(),
+            string.IsNullOrWhiteSpace(_newEmployeeNumber) ? null : _newEmployeeNumber.Trim(),
             string.IsNullOrWhiteSpace(_newMobilePhone) ? null : _newMobilePhone.Trim(),
-            string.IsNullOrWhiteSpace(_newBusinessPhone) ? null : _newBusinessPhone.Trim()));
+            string.IsNullOrWhiteSpace(_newBusinessPhone) ? null : _newBusinessPhone.Trim(),
+            _newIsServiceAccount));
         _isSaving = false;
 
         if (!success)
@@ -217,8 +334,10 @@
 
         _newFullName = string.Empty;
         _newEmail = string.Empty;
+        _newEmployeeNumber = string.Empty;
         _newMobilePhone = string.Empty;
         _newBusinessPhone = string.Empty;
+        _newIsServiceAccount = false;
         await ReloadPeopleTableAsync();
         Snackbar.Add("Person added.", Severity.Success);
     }
@@ -228,8 +347,10 @@
         _editingPersonId = person.Id;
         _editFullName = person.FullName;
         _editEmail = person.Email ?? string.Empty;
+        _editEmployeeNumber = person.EmployeeNumber ?? string.Empty;
         _editMobilePhone = person.MobilePhone ?? string.Empty;
         _editBusinessPhone = person.BusinessPhone ?? string.Empty;
+        _editIsServiceAccount = person.IsServiceAccount;
     }
 
     private void CancelEdit()
@@ -237,8 +358,10 @@
         _editingPersonId = null;
         _editFullName = string.Empty;
         _editEmail = string.Empty;
+        _editEmployeeNumber = string.Empty;
         _editMobilePhone = string.Empty;
         _editBusinessPhone = string.Empty;
+        _editIsServiceAccount = false;
     }
 
     private async Task SaveEditAsync()
@@ -253,8 +376,10 @@
         var (success, error) = await Api.UpdatePersonAsync(_editingPersonId.Value, new CreateTrackedPersonRequest(
             _editFullName.Trim(),
             string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim(),
+            string.IsNullOrWhiteSpace(_editEmployeeNumber) ? null : _editEmployeeNumber.Trim(),
             string.IsNullOrWhiteSpace(_editMobilePhone) ? null : _editMobilePhone.Trim(),
-            string.IsNullOrWhiteSpace(_editBusinessPhone) ? null : _editBusinessPhone.Trim()));
+            string.IsNullOrWhiteSpace(_editBusinessPhone) ? null : _editBusinessPhone.Trim(),
+            _editIsServiceAccount));
         _isSaving = false;
 
         if (!success)
