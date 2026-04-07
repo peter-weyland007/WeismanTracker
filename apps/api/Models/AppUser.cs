@@ -14,5 +14,10 @@ public class AppUser
 
     public UserRole Role { get; set; } = UserRole.User;
 
+    public bool IsEnabled { get; set; } = true;
+
+    [MaxLength(4000)]
+    public string PermissionsJson { get; set; } = "[]";
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }

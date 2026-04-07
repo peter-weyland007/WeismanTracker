@@ -1,12 +1,120 @@
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using web.Models;
 
 namespace web.Services;
 
-public class CatEtApiClient(IHttpClientFactory httpClientFactory)
+public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore tokenStore)
 {
     private readonly HttpClient _http = httpClientFactory.CreateClient("WeismanApi");
+
+    private async Task<string?> ResolveTokenAsync()
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var token = await tokenStore.GetTokenAsync();
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                return token;
+            }
+
+            if (!tokenStore.LastReadFailed)
+            {
+                return null;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return await tokenStore.GetTokenAsync();
+    }
+
+    private async Task<HttpRequestMessage> CreateAuthedRequestAsync(HttpMethod method, string url)
+    {
+        var request = new HttpRequestMessage(method, url);
+        var token = await ResolveTokenAsync();
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        return request;
+    }
+
+    private async Task EnsureAuthorizationHeaderAsync()
+    {
+        var token = await ResolveTokenAsync();
+        _http.DefaultRequestHeaders.Authorization = string.IsNullOrWhiteSpace(token)
+            ? null
+            : new AuthenticationHeaderValue("Bearer", token);
+    }
+
+    private async Task<T?> GetAuthedJsonAsync<T>(string url)
+    {
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var request = await CreateAuthedRequestAsync(HttpMethod.Get, url);
+            using var response = await _http.SendAsync(request);
+            if ((response.StatusCode == System.Net.HttpStatusCode.Unauthorized || response.StatusCode == System.Net.HttpStatusCode.Forbidden) && attempt == 0)
+            {
+                await Task.Delay(150);
+                continue;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<T>();
+        }
+
+        return default;
+    }
+
+    public async Task<LoginResponse?> LoginAsync(string username, string password)
+    {
+        var response = await _http.PostAsJsonAsync("/api/auth/login", new { Username = username, Password = password });
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<LoginResponse>();
+    }
+
+    public async Task<IReadOnlyList<string>> GetAvailablePermissionsAsync()
+    {
+        await EnsureAuthorizationHeaderAsync();
+        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, "/api/auth/permissions");
+        using var response = await _http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<string>>() ?? [];
+    }
+
+    public async Task<IReadOnlyList<UserAccessDto>> GetUsersAsync()
+    {
+        await EnsureAuthorizationHeaderAsync();
+        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, "/api/admin/users");
+        using var response = await _http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<UserAccessDto>>() ?? [];
+    }
+
+    public async Task<(bool Success, string? Error)> CreateUserAsync(CreateOrUpdateUserRequest request)
+    {
+        await EnsureAuthorizationHeaderAsync();
+        using var message = await CreateAuthedRequestAsync(HttpMethod.Post, "/api/admin/users");
+        message.Content = JsonContent.Create(request);
+        var response = await _http.SendAsync(message);
+        return response.IsSuccessStatusCode ? (true, null) : (false, await ReadErrorAsync(response));
+    }
+
+    public async Task<(bool Success, string? Error)> UpdateUserAsync(int id, CreateOrUpdateUserRequest request)
+    {
+        await EnsureAuthorizationHeaderAsync();
+        using var message = await CreateAuthedRequestAsync(HttpMethod.Put, $"/api/admin/users/{id}");
+        message.Content = JsonContent.Create(request);
+        var response = await _http.SendAsync(message);
+        return response.IsSuccessStatusCode ? (true, null) : (false, await ReadErrorAsync(response));
+    }
 
     public async Task<PagedResultDto<TrackedPersonDto>> GetPeoplePageAsync(
         int page = 1,
@@ -37,7 +145,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
             url += $"&filter={Uri.EscapeDataString(filter.Trim())}";
         }
 
-        return await _http.GetFromJsonAsync<PagedResultDto<TrackedPersonDto>>(url)
+        return await GetAuthedJsonAsync<PagedResultDto<TrackedPersonDto>>(url)
             ?? new PagedResultDto<TrackedPersonDto>([], 0, Math.Max(1, page), Math.Clamp(pageSize, 1, 500));
     }
 
@@ -65,6 +173,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> CreatePersonAsync(CreateTrackedPersonRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsJsonAsync("/api/catet/people", request);
         if (response.IsSuccessStatusCode)
         {
@@ -76,6 +185,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> UpdatePersonAsync(int id, CreateTrackedPersonRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync($"/api/catet/people/{id}", request);
         if (response.IsSuccessStatusCode)
         {
@@ -87,6 +197,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> DeletePersonAsync(int id)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.DeleteAsync($"/api/catet/people/{id}");
         if (response.IsSuccessStatusCode)
         {
@@ -125,12 +236,13 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
             url += $"&filter={Uri.EscapeDataString(filter.Trim())}";
         }
 
-        return await _http.GetFromJsonAsync<PagedResultDto<CellPhoneAllowanceDto>>(url)
+        return await GetAuthedJsonAsync<PagedResultDto<CellPhoneAllowanceDto>>(url)
             ?? new PagedResultDto<CellPhoneAllowanceDto>([], 0, Math.Max(1, page), Math.Clamp(pageSize, 1, 500));
     }
 
     public async Task<(bool Success, string? Error)> CreateCellPhoneAllowanceAsync(CreateCellPhoneAllowanceRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsJsonAsync("/api/allowances/cell-phone", request);
         if (response.IsSuccessStatusCode)
         {
@@ -142,6 +254,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> UpdateCellPhoneAllowanceAsync(int id, CreateCellPhoneAllowanceRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync($"/api/allowances/cell-phone/{id}", request);
         if (response.IsSuccessStatusCode)
         {
@@ -153,6 +266,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> DeleteCellPhoneAllowanceAsync(int id)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.DeleteAsync($"/api/allowances/cell-phone/{id}");
         if (response.IsSuccessStatusCode)
         {
@@ -203,7 +317,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
             url += $"&category={Uri.EscapeDataString(category.Trim())}";
         }
 
-        return await _http.GetFromJsonAsync<PagedResultDto<TrackedComputerDto>>(url)
+        return await GetAuthedJsonAsync<PagedResultDto<TrackedComputerDto>>(url)
             ?? new PagedResultDto<TrackedComputerDto>([], 0, Math.Max(1, page), Math.Clamp(pageSize, 1, 500));
     }
 
@@ -229,8 +343,15 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
         return all;
     }
 
+    public async Task<IReadOnlyList<TrackedComputerDto>> GetLicenseAssignableComputersAsync()
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<List<TrackedComputerDto>>("/api/catet/licenses/assignable-computers") ?? [];
+    }
+
     public async Task<(bool Success, string? Error)> CreateComputerAsync(CreateTrackedComputerRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsJsonAsync("/api/catet/computers", request);
         if (response.IsSuccessStatusCode)
         {
@@ -242,6 +363,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> UpdateComputerAsync(int id, CreateTrackedComputerRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync($"/api/catet/computers/{id}", request);
         if (response.IsSuccessStatusCode)
         {
@@ -253,6 +375,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> DeleteComputerAsync(int id)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.DeleteAsync($"/api/catet/computers/{id}");
         if (response.IsSuccessStatusCode)
         {
@@ -264,6 +387,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> UpdateComputerFlagsAsync(int id, UpdateTrackedComputerFlagsRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync($"/api/catet/computers/{id}/flags", request);
         if (response.IsSuccessStatusCode)
         {
@@ -274,10 +398,14 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     }
 
     public async Task<IReadOnlyList<CatEtLicenseDto>> GetLicensesAsync()
-        => await _http.GetFromJsonAsync<List<CatEtLicenseDto>>("/api/catet/licenses") ?? [];
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<List<CatEtLicenseDto>>("/api/catet/licenses") ?? [];
+    }
 
     public async Task<(bool Success, string? Error)> CreateLicenseAsync(CreateCatEtLicenseRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsJsonAsync("/api/catet/licenses", request);
         if (response.IsSuccessStatusCode)
         {
@@ -289,6 +417,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> UpdateLicenseAsync(int id, UpdateCatEtLicenseRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync($"/api/catet/licenses/{id}", request);
         if (response.IsSuccessStatusCode)
         {
@@ -300,6 +429,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> MarkActivatedAsync(int id)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsync($"/api/catet/licenses/{id}/activate", null);
         if (response.IsSuccessStatusCode)
         {
@@ -310,13 +440,20 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     }
 
     public async Task<IReadOnlyList<CatEtActivationEventDto>> GetLicenseEventsAsync(int id)
-        => await _http.GetFromJsonAsync<List<CatEtActivationEventDto>>($"/api/catet/licenses/{id}/events") ?? [];
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<List<CatEtActivationEventDto>>($"/api/catet/licenses/{id}/events") ?? [];
+    }
 
     public async Task<IReadOnlyList<CatEtActivationActivityRowDto>> GetActivityEventsAsync()
-        => await _http.GetFromJsonAsync<List<CatEtActivationActivityRowDto>>("/api/catet/activity") ?? [];
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<List<CatEtActivationActivityRowDto>>("/api/catet/activity") ?? [];
+    }
 
     public async Task<(bool Success, string? Error)> ResetActivationAsync(int id, ResetActivationRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsJsonAsync($"/api/catet/licenses/{id}/reset", request);
         if (response.IsSuccessStatusCode)
         {
@@ -328,6 +465,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> DeleteLicenseAsync(int id)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.DeleteAsync($"/api/catet/licenses/{id}");
         if (response.IsSuccessStatusCode)
         {
@@ -339,6 +477,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, ImportCatEtLicensesResult? Result, string? Error)> ImportLicensesAsync(Stream fileStream, string fileName, bool forceOverwrite)
     {
+        await EnsureAuthorizationHeaderAsync();
         using var content = new MultipartFormDataContent();
         using var fileContent = new StreamContent(fileStream);
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
@@ -358,13 +497,17 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     }
 
     public async Task<IntegrationSettingsDto> GetIntegrationSettingsAsync()
-        => await _http.GetFromJsonAsync<IntegrationSettingsDto>("/api/integrations/settings")
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<IntegrationSettingsDto>("/api/integrations/settings")
            ?? new IntegrationSettingsDto(
                new NinjaIntegrationConfigDto(string.Empty, string.Empty, false, "monitoring", "/ws/oauth/token", "/v2/devices", 200),
                new MicrosoftGraphIntegrationConfigDto(string.Empty, string.Empty, false, "https://graph.microsoft.com", "https://management.azure.com", 999, []));
+    }
 
     public async Task<(bool Success, string? Error)> SaveNinjaIntegrationSettingsAsync(UpdateNinjaIntegrationConfigRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync("/api/integrations/settings/ninja", request);
         if (response.IsSuccessStatusCode)
         {
@@ -376,6 +519,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, string? Error)> SaveMicrosoftGraphIntegrationSettingsAsync(UpdateMicrosoftGraphIntegrationConfigRequest request)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PutAsJsonAsync("/api/integrations/settings/microsoft-graph", request);
         if (response.IsSuccessStatusCode)
         {
@@ -386,13 +530,17 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     }
 
     public async Task<IntegrationSyncStatusSnapshotDto> GetIntegrationSyncStatusAsync()
-        => await _http.GetFromJsonAsync<IntegrationSyncStatusSnapshotDto>("/api/integrations/sync-status")
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<IntegrationSyncStatusSnapshotDto>("/api/integrations/sync-status")
            ?? new IntegrationSyncStatusSnapshotDto(
                new IntegrationSyncStatusDto("Ninja", false, "Never", null, null, null, 0, 0, null, null, []),
                new IntegrationSyncStatusDto("Microsoft", false, "Never", null, null, null, 0, 0, null, null, []));
+    }
 
     public async Task<(bool Success, TriggerIntegrationSyncResponseDto? Result, string? Error)> TriggerNinjaSyncNowAsync()
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsync("/api/integrations/sync-now/ninja", null);
         if (!response.IsSuccessStatusCode)
         {
@@ -407,6 +555,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
 
     public async Task<(bool Success, TriggerIntegrationSyncResponseDto? Result, string? Error)> TriggerMicrosoftSyncNowAsync()
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.PostAsync("/api/integrations/sync-now/microsoft", null);
         if (!response.IsSuccessStatusCode)
         {
@@ -420,10 +569,14 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
     }
 
     public async Task<IReadOnlyList<DeletedRecordDto>> GetDeletedRecordsAsync()
-        => await _http.GetFromJsonAsync<List<DeletedRecordDto>>("/api/admin/deleted-records") ?? [];
+    {
+        await EnsureAuthorizationHeaderAsync();
+        return await GetAuthedJsonAsync<List<DeletedRecordDto>>("/api/admin/deleted-records") ?? [];
+    }
 
     public async Task<(bool Success, string? Error)> HardDeleteRecordAsync(string recordType, int id)
     {
+        await EnsureAuthorizationHeaderAsync();
         var response = await _http.DeleteAsync($"/api/admin/{recordType}/{id}/hard-delete");
         if (response.IsSuccessStatusCode)
         {

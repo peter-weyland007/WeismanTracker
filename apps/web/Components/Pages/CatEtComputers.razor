@@ -1,4 +1,5 @@
 @page "/assets/computers"
+@attribute [Authorize(Policy = AppPermissions.Computers)]
 @inject CatEtApiClient Api
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -518,3 +519,4 @@
         Snackbar.Add("Computer soft-deleted.", Severity.Success);
     }
 }
+

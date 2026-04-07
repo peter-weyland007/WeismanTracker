@@ -11,12 +11,36 @@
     <link rel="stylesheet" href="@Assets["web.styles.css"]" />
     <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: false)" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <CascadingAuthenticationState>
+        <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+    </CascadingAuthenticationState>
     <ReconnectModal />
+    <script>
+        window.authTokenStore = {
+            getToken: function (key) {
+                return window.sessionStorage.getItem(key);
+            },
+            setToken: function (key, token) {
+                window.sessionStorage.setItem(key, token);
+                document.cookie = `${key}=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
+            },
+            clearToken: function (key) {
+                window.sessionStorage.removeItem(key);
+                document.cookie = `${key}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+            },
+            syncCookieFromSession: function (key) {
+                const token = window.sessionStorage.getItem(key);
+                if (token) {
+                    document.cookie = `${key}=${encodeURIComponent(token)}; path=/; SameSite=Lax`;
+                }
+            }
+        };
+        window.authTokenStore.syncCookieFromSession('auth.token');
+    </script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>

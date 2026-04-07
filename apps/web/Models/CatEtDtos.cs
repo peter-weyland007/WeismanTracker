@@ -1,5 +1,9 @@
 namespace web.Models;
 
+public record LoginResponse(string Token, string Username, string Role, IReadOnlyList<string> Permissions, DateTime ExpiresAtUtc);
+public record UserAccessDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
+public record CreateOrUpdateUserRequest(string Username, string? Password, string Role, bool IsEnabled, IReadOnlyList<string>? Permissions);
+
 public record TrackedPersonDto(int Id, string FullName, string? Email, string? EmployeeNumber, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount, DateTime CreatedAtUtc);
 public record CreateTrackedPersonRequest(string FullName, string? Email, string? EmployeeNumber, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount);
 

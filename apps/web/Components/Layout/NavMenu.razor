@@ -1,26 +1,106 @@
+@inject AuthenticationStateProvider AuthStateProvider
+
 <MudNavMenu Dense="true" Class="pa-2">
-    <MudNavLink Href="/" Icon="@Icons.Material.Filled.Dashboard" Match="NavLinkMatch.All">Dashboard</MudNavLink>
+    @if (_isAuthenticated)
+    {
+        <MudNavLink Href="/" Icon="@Icons.Material.Filled.Dashboard" Match="NavLinkMatch.All">Dashboard</MudNavLink>
 
-    <MudDivider Class="my-2" />
+        <MudDivider Class="my-2" />
 
-    <MudNavGroup Title="Company Assets" Icon="@Icons.Material.Filled.Business" Expanded="true">
-        <MudNavLink Href="/assets/users" Icon="@Icons.Material.Filled.People">People</MudNavLink>
-        <MudNavLink Href="/assets/computers" Icon="@Icons.Material.Filled.Computer">Computers</MudNavLink>
-        <MudNavLink Href="/assets/mobile-devices" Icon="@Icons.Material.Filled.TabletMac">Mobile Devices</MudNavLink>
-        <MudNavLink Href="/assets/other-devices" Icon="@Icons.Material.Filled.DevicesOther">Other Devices</MudNavLink>
-    </MudNavGroup>
+        @if (ShowCompanyAssets)
+        {
+            <MudNavGroup Title="Company Assets" Icon="@Icons.Material.Filled.Business" Expanded="true">
+                @if (Has(AppPermissions.People))
+                {
+                    <MudNavLink Href="/assets/users" Icon="@Icons.Material.Filled.People">People</MudNavLink>
+                }
+                @if (Has(AppPermissions.Computers))
+                {
+                    <MudNavLink Href="/assets/computers" Icon="@Icons.Material.Filled.Computer">Computers</MudNavLink>
+                }
+                @if (Has(AppPermissions.MobileDevices))
+                {
+                    <MudNavLink Href="/assets/mobile-devices" Icon="@Icons.Material.Filled.TabletMac">Mobile Devices</MudNavLink>
+                }
+                @if (Has(AppPermissions.OtherDevices))
+                {
+                    <MudNavLink Href="/assets/other-devices" Icon="@Icons.Material.Filled.DevicesOther">Other Devices</MudNavLink>
+                }
+            </MudNavGroup>
+        }
 
-    <MudNavGroup Title="Allowances" Icon="@Icons.Material.Filled.AttachMoney" Expanded="true">
-        <MudNavLink Href="/allowances/cell-phone" Icon="@Icons.Material.Filled.PhoneIphone">Cell Phone Allowance</MudNavLink>
-    </MudNavGroup>
+        @if (Has(AppPermissions.CellPhoneAllowance))
+        {
+            <MudNavGroup Title="Allowances" Icon="@Icons.Material.Filled.AttachMoney" Expanded="true">
+                <MudNavLink Href="/allowances/cell-phone" Icon="@Icons.Material.Filled.PhoneIphone">Cell Phone Allowance</MudNavLink>
+            </MudNavGroup>
+        }
 
-    <MudNavGroup Title="CAT ET" Icon="@Icons.Material.Filled.Key" Expanded="true">
-        <MudNavLink Href="/catet/licenses" Icon="@Icons.Material.Filled.VpnKey">Activation Keys</MudNavLink>
-        <MudNavLink Href="/catet/activity" Icon="@Icons.Material.Filled.Timeline">Activity Tracker</MudNavLink>
-    </MudNavGroup>
+        @if (Has(AppPermissions.ActivationKeys) || Has(AppPermissions.ActivityTracker))
+        {
+            <MudNavGroup Title="CAT ET" Icon="@Icons.Material.Filled.Key" Expanded="true">
+                @if (Has(AppPermissions.ActivationKeys))
+                {
+                    <MudNavLink Href="/catet/licenses" Icon="@Icons.Material.Filled.VpnKey">Activation Keys</MudNavLink>
+                }
+                @if (Has(AppPermissions.ActivityTracker))
+                {
+                    <MudNavLink Href="/catet/activity" Icon="@Icons.Material.Filled.Timeline">Activity Tracker</MudNavLink>
+                }
+            </MudNavGroup>
+        }
 
-    <MudNavGroup Title="Admin" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="false">
-        <MudNavLink Href="/settings/integrations" Icon="@Icons.Material.Filled.Link">Integrations</MudNavLink>
-        <MudNavLink Href="/admin/records" Icon="@Icons.Material.Filled.DeleteForever">Hard Delete</MudNavLink>
-    </MudNavGroup>
+        @if (Has(AppPermissions.UserAccess) || Has(AppPermissions.Integrations) || Has(AppPermissions.HardDelete))
+        {
+            <MudNavGroup Title="Admin" Icon="@Icons.Material.Filled.AdminPanelSettings" Expanded="false">
+                @if (Has(AppPermissions.UserAccess))
+                {
+                    <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.ManageAccounts">User Access</MudNavLink>
+                }
+                @if (Has(AppPermissions.Integrations))
+                {
+                    <MudNavLink Href="/settings/integrations" Icon="@Icons.Material.Filled.Link">Integrations</MudNavLink>
+                }
+                @if (Has(AppPermissions.HardDelete))
+                {
+                    <MudNavLink Href="/admin/records" Icon="@Icons.Material.Filled.DeleteForever">Hard Delete</MudNavLink>
+                }
+            </MudNavGroup>
+        }
+    }
 </MudNavMenu>
+
+@code {
+    private ClaimsPrincipal _user = new(new ClaimsIdentity());
+    private bool _isAuthenticated;
+
+    private bool ShowCompanyAssets => Has(AppPermissions.People) || Has(AppPermissions.Computers) || Has(AppPermissions.MobileDevices) || Has(AppPermissions.OtherDevices);
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthStateProvider.AuthenticationStateChanged += OnAuthenticationStateChanged;
+        await RefreshAuthStateAsync();
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthenticationStateChanged;
+    }
+
+    private async void OnAuthenticationStateChanged(Task<AuthenticationState> task)
+    {
+        var authState = await task;
+        _user = authState.User;
+        _isAuthenticated = _user.Identity?.IsAuthenticated == true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshAuthStateAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _user = authState.User;
+        _isAuthenticated = _user.Identity?.IsAuthenticated == true;
+    }
+
+    private bool Has(string permission) => _user.HasPermission(permission);
+}

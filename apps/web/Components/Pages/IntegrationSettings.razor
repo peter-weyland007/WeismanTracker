@@ -1,4 +1,5 @@
 @page "/settings/integrations"
+@attribute [Authorize(Policy = AppPermissions.Integrations)]
 @inject CatEtApiClient Api
 @inject ISnackbar Snackbar
 

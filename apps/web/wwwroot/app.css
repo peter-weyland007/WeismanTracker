@@ -38,6 +38,12 @@ html, body {
     min-width: 8rem;
 }
 
+.permission-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.25rem 1rem;
+}
+
 @media (max-width: 959.98px) {
     .people-form-actions {
         justify-content: stretch;

@@ -1,4 +1,5 @@
 @page "/catet/activity"
+@attribute [Authorize(Policy = AppPermissions.ActivityTracker)]
 @using web.Models
 @using web.Services
 @inject CatEtApiClient Api

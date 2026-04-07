@@ -1,4 +1,5 @@
 @page "/allowances/cell-phone"
+@attribute [Authorize(Policy = AppPermissions.CellPhoneAllowance)]
 @inject CatEtApiClient Api
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService

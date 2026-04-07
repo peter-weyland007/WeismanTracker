@@ -1,0 +1,50 @@
+@page "/login"
+@layout BlankLayout
+@inject CatEtApiClient Api
+@inject ApiAuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Login</PageTitle>
+
+<MudPaper Class="pa-6 people-form-card" Elevation="2">
+    <MudText Typo="Typo.h4" Class="mb-2">WeismanTracker</MudText>
+    <MudText Typo="Typo.body1" Class="text-secondary mb-4">Sign in to continue.</MudText>
+
+    <MudStack Spacing="3">
+        <MudTextField @bind-Value="_username" Label="Username" Variant="Variant.Outlined" Required="true" />
+        <MudTextField @bind-Value="_password" Label="Password" Variant="Variant.Outlined" InputType="InputType.Password" Required="true" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoginAsync" Disabled="_isSubmitting">Sign in</MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private bool _isSubmitting;
+
+    private async Task LoginAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password))
+        {
+            Snackbar.Add("Username and password are required.", Severity.Warning);
+            return;
+        }
+
+        _isSubmitting = true;
+        var response = await Api.LoginAsync(_username.Trim(), _password);
+        _isSubmitting = false;
+
+        if (response is null)
+        {
+            Snackbar.Add("Invalid username or password.", Severity.Error);
+            return;
+        }
+
+        await AuthStateProvider.SignInAsync(response.Token);
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        var returnUrl = query.TryGetValue("returnUrl", out var value) ? value.ToString() : null;
+        Navigation.NavigateTo(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl, false);
+    }
+}

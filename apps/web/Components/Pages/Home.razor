@@ -1,42 +1,381 @@
 @page "/"
+@attribute [Authorize]
+@inject AuthenticationStateProvider AuthStateProvider
+@inject CatEtApiClient Api
+@inject NavigationManager Navigation
 
 <PageTitle>WeismanTracker</PageTitle>
 
 <MudText Typo="Typo.h4" Class="mb-1">WeismanTracker</MudText>
 <MudText Typo="Typo.subtitle1" Class="mb-4 mud-secondary-text">CAT ET activation key ownership and assignment tracking</MudText>
 
-<MudGrid>
-    <MudItem xs="12" md="4">
-        <MudCard>
-            <MudCardContent>
-                <MudText Typo="Typo.h6">People</MudText>
-                <MudText Typo="Typo.body2">Manage users that laptops are assigned to.</MudText>
-            </MudCardContent>
-            <MudCardActions>
-                <MudButton Href="/assets/users" Variant="Variant.Filled" Color="Color.Primary">Open</MudButton>
-            </MudCardActions>
-        </MudCard>
-    </MudItem>
-    <MudItem xs="12" md="4">
-        <MudCard>
-            <MudCardContent>
-                <MudText Typo="Typo.h6">Computers</MudText>
-                <MudText Typo="Typo.body2">Map laptops/computers to users.</MudText>
-            </MudCardContent>
-            <MudCardActions>
-                <MudButton Href="/assets/computers" Variant="Variant.Filled" Color="Color.Primary">Open</MudButton>
-            </MudCardActions>
-        </MudCard>
-    </MudItem>
-    <MudItem xs="12" md="4">
-        <MudCard>
-            <MudCardContent>
-                <MudText Typo="Typo.h6">License Keys</MudText>
-                <MudText Typo="Typo.body2">Assign CAT ET keys to computers and trace ownership.</MudText>
-            </MudCardContent>
-            <MudCardActions>
-                <MudButton Href="/catet/licenses" Variant="Variant.Filled" Color="Color.Primary">Open</MudButton>
-            </MudCardActions>
-        </MudCard>
-    </MudItem>
-</MudGrid>
+@if (_resourceCards.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        This account is signed in, but it does not currently have access to any resource pages.
+    </MudAlert>
+}
+else
+{
+    <MudGrid>
+        @foreach (var card in _resourceCards)
+        {
+            <MudItem xs="12" md="6" xl="4">
+                <MudCard Class="pa-2" Style="height:100%; cursor:pointer;"
+                         @onclick="() => NavigateTo(card.Href)">
+                    <MudCardContent>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudIcon Icon="@card.Icon" Color="Color.Primary" Size="Size.Large" />
+                                <div>
+                                    <MudText Typo="Typo.h6">@card.Title</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-secondary-text">@card.Description</MudText>
+                                </div>
+                            </MudStack>
+                            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Color="Color.Default" />
+                        </MudStack>
+
+                        @if (card.IsLoading)
+                        {
+                            <MudSkeleton SkeletonType="SkeletonType.Text" Width="45%" Height="20px" />
+                            <MudSkeleton SkeletonType="SkeletonType.Text" Width="35%" Height="44px" Class="mb-2" />
+                            <MudSkeleton SkeletonType="SkeletonType.Text" Width="85%" Height="16px" />
+                            <MudSkeleton SkeletonType="SkeletonType.Text" Width="72%" Height="16px" />
+                            <MudSkeleton SkeletonType="SkeletonType.Text" Width="68%" Height="16px" />
+                        }
+                        else if (card.ErrorMessage is not null)
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-2">
+                                @card.ErrorMessage
+                            </MudAlert>
+                            <MudText Typo="Typo.body2" Class="mud-secondary-text">Open the section to inspect the underlying data directly.</MudText>
+                        }
+                        else if (card.Summary is not null)
+                        {
+                            <MudText Typo="Typo.caption" Class="text-uppercase mud-secondary-text">@card.Summary.PrimaryLabel</MudText>
+                            <MudText Typo="Typo.h3" Color="Color.Primary" Class="mb-2">@card.Summary.PrimaryValue</MudText>
+
+                            <MudDivider Class="mb-2" />
+
+                            <MudStack Spacing="1">
+                                @foreach (var stat in card.Summary.Stats)
+                                {
+                                    <div class="d-flex justify-space-between align-center gap-3">
+                                        <MudText Typo="Typo.body2">@stat.Label</MudText>
+                                        <MudText Typo="Typo.body2" Class="font-weight-medium">@stat.Value</MudText>
+                                    </div>
+                                }
+                            </MudStack>
+                        }
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    private ClaimsPrincipal _user = new(new ClaimsIdentity());
+    private List<ResourceCardViewModel> _resourceCards = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _user = authState.User;
+
+        BuildCards();
+        await LoadSummariesAsync();
+    }
+
+    private void BuildCards()
+    {
+        var allCards = new[]
+        {
+            new ResourceCardDefinition(AppPermissions.People, "People", "Directory records and account mix.", "/assets/users", Icons.Material.Filled.People, LoadPeopleSummaryAsync),
+            new ResourceCardDefinition(AppPermissions.Computers, "Computers", "Tracked workstation inventory.", "/assets/computers", Icons.Material.Filled.Computer, LoadComputersSummaryAsync),
+            new ResourceCardDefinition(AppPermissions.MobileDevices, "Mobile Devices", "Phones and tablets in inventory.", "/assets/mobile-devices", Icons.Material.Filled.TabletMac, LoadMobileDevicesSummaryAsync),
+            new ResourceCardDefinition(AppPermissions.OtherDevices, "Other Devices", "Peripheral and non-primary assets.", "/assets/other-devices", Icons.Material.Filled.DevicesOther, LoadOtherDevicesSummaryAsync),
+            new ResourceCardDefinition(AppPermissions.CellPhoneAllowance, "Cell Phone Allowance", "Allowance participation and approval state.", "/allowances/cell-phone", Icons.Material.Filled.PhoneIphone, LoadCellPhoneAllowanceSummaryAsync),
+            new ResourceCardDefinition(AppPermissions.ActivationKeys, "CAT ET Keys", "CAT ET key inventory and assignment state.", "/catet/licenses", Icons.Material.Filled.VpnKey, LoadActivationKeySummaryAsync)
+        };
+
+        _resourceCards = allCards
+            .Where(card => _user.HasPermission(card.Permission))
+            .Select(card => new ResourceCardViewModel(card))
+            .ToList();
+    }
+
+    private async Task LoadSummariesAsync()
+    {
+        var tasks = _resourceCards.Select(LoadCardSummaryAsync);
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task LoadCardSummaryAsync(ResourceCardViewModel card)
+    {
+        try
+        {
+            card.Summary = await card.Loader();
+        }
+        catch
+        {
+            card.ErrorMessage = "Unable to load dashboard counts for this section.";
+        }
+        finally
+        {
+            card.IsLoading = false;
+        }
+    }
+
+    private async Task<DashboardSummary> LoadPeopleSummaryAsync()
+    {
+        var totalTask = GetPeopleCountAsync();
+        var employeeTask = GetPeopleCountAsync("human");
+        var serviceTask = GetPeopleCountAsync("service");
+        var withEmailTask = GetPeopleCountAsync("withemail");
+
+        await Task.WhenAll(totalTask, employeeTask, serviceTask, withEmailTask);
+
+        return new DashboardSummary(
+            "Total records",
+            FormatCount(totalTask.Result),
+            [
+                Stat("Employees", employeeTask.Result),
+                Stat("Service accounts", serviceTask.Result),
+                Stat("With email", withEmailTask.Result)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadComputersSummaryAsync()
+    {
+        var totalTask = GetComputerCountAsync(category: "computer", visibility: "all");
+        var assignedTask = GetComputerCountAsync(filter: "assigned", category: "computer", visibility: "all");
+        var unassignedTask = GetComputerCountAsync(filter: "unassigned", category: "computer", visibility: "all");
+        var hiddenTask = GetComputerCountAsync(category: "computer", visibility: "hidden");
+
+        await Task.WhenAll(totalTask, assignedTask, unassignedTask, hiddenTask);
+
+        return new DashboardSummary(
+            "Tracked computers",
+            FormatCount(totalTask.Result),
+            [
+                Stat("Assigned", assignedTask.Result),
+                Stat("Unassigned", unassignedTask.Result),
+                Stat("Hidden", hiddenTask.Result)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadMobileDevicesSummaryAsync()
+    {
+        var totalTask = GetComputerCountAsync(category: "mobile", visibility: "all");
+        var phoneTask = GetComputerCountAsync(category: "phone", visibility: "all");
+        var tabletTask = GetComputerCountAsync(category: "tablet", visibility: "all");
+        var assignedTask = GetComputerCountAsync(filter: "assigned", category: "mobile", visibility: "all");
+
+        await Task.WhenAll(totalTask, phoneTask, tabletTask, assignedTask);
+
+        return new DashboardSummary(
+            "Tracked mobile devices",
+            FormatCount(totalTask.Result),
+            [
+                Stat("Phones", phoneTask.Result),
+                Stat("Tablets", tabletTask.Result),
+                Stat("Assigned", assignedTask.Result)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadOtherDevicesSummaryAsync()
+    {
+        var totalTask = GetComputerCountAsync(category: "other", visibility: "all");
+        var assignedTask = GetComputerCountAsync(filter: "assigned", category: "other", visibility: "all");
+        var unassignedTask = GetComputerCountAsync(filter: "unassigned", category: "other", visibility: "all");
+        var hiddenTask = GetComputerCountAsync(category: "other", visibility: "hidden");
+
+        await Task.WhenAll(totalTask, assignedTask, unassignedTask, hiddenTask);
+
+        return new DashboardSummary(
+            "Tracked other devices",
+            FormatCount(totalTask.Result),
+            [
+                Stat("Assigned", assignedTask.Result),
+                Stat("Unassigned", unassignedTask.Result),
+                Stat("Hidden", hiddenTask.Result)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadCellPhoneAllowanceSummaryAsync()
+    {
+        var totalTask = GetCellPhoneAllowanceCountAsync();
+        var grantedTask = GetCellPhoneAllowanceCountAsync("granted");
+        var notGrantedTask = GetCellPhoneAllowanceCountAsync("notgranted");
+        var firstPageTask = Api.GetCellPhoneAllowancesPageAsync(pageSize: 500);
+
+        await Task.WhenAll(totalTask, grantedTask, notGrantedTask, firstPageTask);
+
+        var approvedCount = firstPageTask.Result.Items.Count(x => x.ApprovedAtUtc is not null);
+
+        return new DashboardSummary(
+            "Allowance records",
+            FormatCount(totalTask.Result),
+            [
+                Stat("Granted", grantedTask.Result),
+                Stat("Not granted", notGrantedTask.Result),
+                Stat("Approved", approvedCount)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadActivationKeySummaryAsync()
+    {
+        var licenses = await Api.GetLicensesAsync();
+        var total = licenses.Count;
+        var available = licenses.Count(x => string.Equals(x.Status, "Available", StringComparison.OrdinalIgnoreCase));
+        var consumed = licenses.Count(x => string.Equals(x.Status, "Consumed", StringComparison.OrdinalIgnoreCase));
+        var assigned = licenses.Count(x => x.TrackedComputerId is not null);
+
+        return new DashboardSummary(
+            "Total keys",
+            FormatCount(total),
+            [
+                Stat("Available", available),
+                Stat("Consumed", consumed),
+                Stat("Assigned", assigned)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadActivityTrackerSummaryAsync()
+    {
+        var events = await Api.GetActivityEventsAsync();
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var consumed = events.Count(x => string.Equals(x.EventType, "Consumed", StringComparison.OrdinalIgnoreCase));
+        var reset = events.Count(x => string.Equals(x.EventType, "Reset", StringComparison.OrdinalIgnoreCase));
+        var recent = events.Count(x => x.OccurredAtUtc >= cutoff);
+
+        return new DashboardSummary(
+            "Total activity events",
+            FormatCount(events.Count),
+            [
+                Stat("Consumed", consumed),
+                Stat("Reset", reset),
+                Stat("Last 7 days", recent)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadIntegrationsSummaryAsync()
+    {
+        var settingsTask = Api.GetIntegrationSettingsAsync();
+        var statusTask = Api.GetIntegrationSyncStatusAsync();
+
+        await Task.WhenAll(settingsTask, statusTask);
+
+        var settings = settingsTask.Result;
+        var status = statusTask.Result;
+
+        var configured = 0;
+        if (IsNinjaConfigured(settings.Ninja))
+        {
+            configured++;
+        }
+
+        if (IsMicrosoftConfigured(settings.MicrosoftGraph))
+        {
+            configured++;
+        }
+
+        var healthStates = new[] { status.Ninja, status.Microsoft };
+        var healthy = healthStates.Count(x => string.Equals(x.LastStatus, "Success", StringComparison.OrdinalIgnoreCase));
+        var running = healthStates.Count(x => x.IsRunning);
+        var failures = healthStates.Count(x => string.Equals(x.LastStatus, "Failed", StringComparison.OrdinalIgnoreCase));
+
+        return new DashboardSummary(
+            "Configured integrations",
+            FormatCount(configured),
+            [
+                Stat("Healthy", healthy),
+                Stat("Running", running),
+                Stat("Failing", failures)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadHardDeleteSummaryAsync()
+    {
+        var deletedRecords = await Api.GetDeletedRecordsAsync();
+        var people = deletedRecords.Count(x => string.Equals(x.RecordType, "people", StringComparison.OrdinalIgnoreCase));
+        var computers = deletedRecords.Count(x => string.Equals(x.RecordType, "computers", StringComparison.OrdinalIgnoreCase));
+        var licenses = deletedRecords.Count(x => string.Equals(x.RecordType, "licenses", StringComparison.OrdinalIgnoreCase));
+
+        return new DashboardSummary(
+            "Deleted records",
+            FormatCount(deletedRecords.Count),
+            [
+                Stat("People", people),
+                Stat("Computers", computers),
+                Stat("Licenses", licenses)
+            ]);
+    }
+
+    private async Task<DashboardSummary> LoadUserAccessSummaryAsync()
+    {
+        var users = await Api.GetUsersAsync();
+        var enabled = users.Count(x => x.IsEnabled);
+        var disabled = users.Count - enabled;
+        var admins = users.Count(x => string.Equals(x.Role, "Admin", StringComparison.OrdinalIgnoreCase));
+
+        return new DashboardSummary(
+            "User accounts",
+            FormatCount(users.Count),
+            [
+                Stat("Enabled", enabled),
+                Stat("Disabled", disabled),
+                Stat("Admins", admins)
+            ]);
+    }
+
+    private async Task<int> GetPeopleCountAsync(string? filter = null)
+        => (await Api.GetPeoplePageAsync(pageSize: 1, filter: filter)).TotalCount;
+
+    private async Task<int> GetCellPhoneAllowanceCountAsync(string? filter = null)
+        => (await Api.GetCellPhoneAllowancesPageAsync(pageSize: 1, filter: filter)).TotalCount;
+
+    private async Task<int> GetComputerCountAsync(string? filter = null, string? visibility = null, string? category = null)
+        => (await Api.GetComputersPageAsync(pageSize: 1, filter: filter, visibility: visibility, category: category)).TotalCount;
+
+    private static bool IsNinjaConfigured(NinjaIntegrationConfigDto ninja)
+        => !string.IsNullOrWhiteSpace(ninja.BaseUrl)
+           && !string.IsNullOrWhiteSpace(ninja.ClientId)
+           && ninja.HasClientSecret;
+
+    private static bool IsMicrosoftConfigured(MicrosoftGraphIntegrationConfigDto microsoft)
+        => !string.IsNullOrWhiteSpace(microsoft.TenantId)
+           && !string.IsNullOrWhiteSpace(microsoft.ClientId)
+           && microsoft.HasClientSecret;
+
+    private static DashboardStat Stat(string label, int value) => new(label, FormatCount(value));
+
+    private static string FormatCount(int value) => value.ToString("N0");
+
+    private void NavigateTo(string href) => Navigation.NavigateTo(href);
+
+    private sealed record ResourceCardDefinition(
+        string Permission,
+        string Title,
+        string Description,
+        string Href,
+        string Icon,
+        Func<Task<DashboardSummary>> LoadSummaryAsync);
+
+    private sealed class ResourceCardViewModel(ResourceCardDefinition definition)
+    {
+        public string Permission { get; } = definition.Permission;
+        public string Title { get; } = definition.Title;
+        public string Description { get; } = definition.Description;
+        public string Href { get; } = definition.Href;
+        public string Icon { get; } = definition.Icon;
+        public Func<Task<DashboardSummary>> Loader { get; } = definition.LoadSummaryAsync;
+        public bool IsLoading { get; set; } = true;
+        public string? ErrorMessage { get; set; }
+        public DashboardSummary? Summary { get; set; }
+    }
+
+    private sealed record DashboardSummary(string PrimaryLabel, string PrimaryValue, IReadOnlyList<DashboardStat> Stats);
+    private sealed record DashboardStat(string Label, string Value);
+}

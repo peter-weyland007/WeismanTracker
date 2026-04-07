@@ -1,5 +1,7 @@
 using System.Data;
 using System.Data.Common;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -8,13 +10,39 @@ using api.Contracts;
 using api.Data;
 using api.Integrations;
 using api.Models;
+using api.Security;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
+
+var jwtSigningKey = builder.Configuration["Jwt:SigningKey"] ?? "dev-only-change-me-super-secret-signing-key";
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "WeismanTracker.Api";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "WeismanTracker.Web";
+var jwtSigningKeyBytes = Encoding.UTF8.GetBytes(jwtSigningKey);
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(jwtSigningKeyBytes),
+            ClockSkew = TimeSpan.FromMinutes(2)
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 builder.Services.Configure<IntegrationSyncOptions>(builder.Configuration.GetSection("IntegrationSync"));
 builder.Services.Configure<NinjaOptions>(builder.Configuration.GetSection("Integrations:Ninja"));
@@ -51,6 +79,7 @@ using (var scope = app.Services.CreateScope())
     EnsureEntityResourceCoverageSchema(db);
     EnsureIntegrationProviderConfigSchema(db);
     EnsureIntegrationSyncStatusSchema(db);
+    EnsureAppUserAccessSchema(db);
 
     if (!db.Users.Any())
     {
@@ -59,6 +88,8 @@ using (var scope = app.Services.CreateScope())
             Username = "admin",
             Password = "admin",
             Role = UserRole.Admin,
+            IsEnabled = true,
+            PermissionsJson = AppUserPermissionExtensions.SerializePermissions(AppPermissions.All),
             CreatedAtUtc = DateTime.UtcNow
         });
         db.SaveChanges();
@@ -66,33 +97,174 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    var requiredPermissions = ApiPermissionResolver.Resolve(context);
+    if (requiredPermissions is null || requiredPermissions.Count == 0)
+    {
+        await next();
+        return;
+    }
+
+    if (context.User.Identity?.IsAuthenticated != true)
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { message = "Authentication required." });
+        return;
+    }
+
+    if (!requiredPermissions.Any(context.User.HasPermission))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new { message = "You do not have access to this feature." });
+        return;
+    }
+
+    await next();
+});
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", service = "WeismanTracker API" }));
 
 app.MapPost("/api/auth/login", (LoginRequest request, AppDbContext db) =>
 {
-    var user = db.Users.FirstOrDefault(u => u.Username == request.Username && u.Password == request.Password);
-    if (user is null)
+    var username = request.Username.Trim();
+    var password = request.Password;
+
+    var user = db.Users.FirstOrDefault(u => u.Username == username && u.Password == password);
+    if (user is null || !user.IsEnabled)
     {
         return Results.Unauthorized();
     }
 
+    var permissions = user.GetEffectivePermissions();
+    var claims = new List<Claim>
+    {
+        new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+        new(JwtRegisteredClaimNames.UniqueName, user.Username),
+        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new(ClaimTypes.Name, user.Username),
+        new(ClaimTypes.Role, user.Role.ToString())
+    };
+
+    claims.AddRange(permissions.Select(permission => new Claim("perm", permission)));
+
+    var credentials = new SigningCredentials(new SymmetricSecurityKey(jwtSigningKeyBytes), SecurityAlgorithms.HmacSha256);
+    var token = new JwtSecurityToken(
+        issuer: jwtIssuer,
+        audience: jwtAudience,
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(12),
+        signingCredentials: credentials);
+
+    var encodedToken = new JwtSecurityTokenHandler().WriteToken(token);
+
     var response = new LoginResponse(
-        Token: Convert.ToBase64String(Guid.NewGuid().ToByteArray()),
+        Token: encodedToken,
         Username: user.Username,
-        Role: user.Role.ToString());
+        Role: user.Role.ToString(),
+        Permissions: permissions,
+        ExpiresAtUtc: token.ValidTo);
 
     return Results.Ok(response);
 });
 
-app.MapGet("/api/users", (AppDbContext db) =>
+app.MapGet("/api/auth/permissions", () => Results.Ok(AppPermissions.All));
+
+app.MapGet("/api/admin/users", (AppDbContext db) =>
 {
     var users = db.Users
         .OrderBy(u => u.Username)
-        .Select(u => new UserDto(u.Id, u.Username, u.Role.ToString(), u.CreatedAtUtc))
+        .AsEnumerable()
+        .Select(u => new UserAccessDto(
+            u.Id,
+            u.Username,
+            u.Role.ToString(),
+            u.IsEnabled,
+            u.GetEffectivePermissions(),
+            u.CreatedAtUtc))
         .ToList();
 
     return Results.Ok(users);
+});
+
+app.MapPost("/api/admin/users", async (CreateOrUpdateUserRequest request, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Username))
+    {
+        return Results.BadRequest(new { message = "Username is required." });
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Password))
+    {
+        return Results.BadRequest(new { message = "Password is required." });
+    }
+
+    if (!Enum.TryParse<UserRole>(request.Role, true, out var role))
+    {
+        return Results.BadRequest(new { message = "Invalid role." });
+    }
+
+    var username = request.Username.Trim();
+    var usernameExists = await db.Users.AnyAsync(u => u.Username == username);
+    if (usernameExists)
+    {
+        return Results.BadRequest(new { message = "That username already exists." });
+    }
+
+    var user = new AppUser
+    {
+        Username = username,
+        Password = request.Password.Trim(),
+        Role = role,
+        IsEnabled = request.IsEnabled,
+        PermissionsJson = AppUserPermissionExtensions.SerializePermissions(request.Permissions ?? []),
+        CreatedAtUtc = DateTime.UtcNow
+    };
+
+    db.Users.Add(user);
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
+app.MapPut("/api/admin/users/{id:int}", async (int id, CreateOrUpdateUserRequest request, AppDbContext db) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id);
+    if (user is null)
+    {
+        return Results.NotFound(new { message = "User not found." });
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Username))
+    {
+        return Results.BadRequest(new { message = "Username is required." });
+    }
+
+    if (!Enum.TryParse<UserRole>(request.Role, true, out var role))
+    {
+        return Results.BadRequest(new { message = "Invalid role." });
+    }
+
+    var username = request.Username.Trim();
+    var duplicate = await db.Users.AnyAsync(u => u.Id != id && u.Username == username);
+    if (duplicate)
+    {
+        return Results.BadRequest(new { message = "That username already exists." });
+    }
+
+    user.Username = username;
+    user.Role = role;
+    user.IsEnabled = request.IsEnabled;
+    user.PermissionsJson = AppUserPermissionExtensions.SerializePermissions(request.Permissions ?? []);
+
+    if (!string.IsNullOrWhiteSpace(request.Password))
+    {
+        user.Password = request.Password.Trim();
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok();
 });
 
 app.MapGet("/api/resource-definitions", async (string? entityType, AppDbContext db) =>
@@ -1001,6 +1173,28 @@ app.MapGet("/api/catet/licenses", async (AppDbContext db) =>
     return Results.Ok(licenses);
 });
 
+app.MapGet("/api/catet/licenses/assignable-computers", async (AppDbContext db) =>
+{
+    var computers = await db.TrackedComputers
+        .Where(c => c.DeletedAtUtc == null)
+        .Include(c => c.TrackedPerson)
+        .OrderBy(c => c.Hostname)
+        .Select(c => new TrackedComputerDto(
+            c.Id,
+            c.Hostname,
+            c.AssetTag,
+            c.TrackedPersonId,
+            c.TrackedPerson != null ? c.TrackedPerson.FullName : null,
+            c.CreatedAtUtc,
+            c.ExcludeFromSync,
+            c.HiddenFromTable,
+            c.IsMobileDevice,
+            c.AssetCategory))
+        .ToListAsync();
+
+    return Results.Ok(computers);
+});
+
 app.MapGet("/api/catet/licenses/{id:int}/events", async (int id, AppDbContext db) =>
 {
     var licenseExists = await db.CatEtLicenses.AnyAsync(l => l.Id == id && l.DeletedAtUtc == null);
@@ -1880,6 +2074,45 @@ CREATE UNIQUE INDEX IF NOT EXISTS ""IX_IntegrationSyncStatuses_SyncTarget"" ON "
     }
 }
 
+void EnsureAppUserAccessSchema(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    if (!TableColumnExists(connection, "Users", "IsEnabled"))
+    {
+        using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"Users\" ADD COLUMN \"IsEnabled\" INTEGER NOT NULL DEFAULT 1;";
+        alterCommand.ExecuteNonQuery();
+    }
+
+    if (!TableColumnExists(connection, "Users", "PermissionsJson"))
+    {
+        using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"Users\" ADD COLUMN \"PermissionsJson\" TEXT NOT NULL DEFAULT '[]';";
+        alterCommand.ExecuteNonQuery();
+    }
+
+    using var backfillCommand = connection.CreateCommand();
+    backfillCommand.CommandText = @"
+UPDATE ""Users""
+SET ""PermissionsJson"" = CASE
+    WHEN ""Role"" = 0 THEN @adminPermissions
+    ELSE COALESCE(NULLIF(""PermissionsJson"", ''), '[]')
+END,
+    ""IsEnabled"" = COALESCE(""IsEnabled"", 1)
+WHERE COALESCE(NULLIF(""PermissionsJson"", ''), '') = '' OR ""Role"" = 0;";
+    var adminPermissionsParam = backfillCommand.CreateParameter();
+    adminPermissionsParam.ParameterName = "@adminPermissions";
+    adminPermissionsParam.Value = AppUserPermissionExtensions.SerializePermissions(AppPermissions.All);
+    backfillCommand.Parameters.Add(adminPermissionsParam);
+    backfillCommand.ExecuteNonQuery();
+}
+
 bool TableColumnExists(DbConnection connection, string tableName, string columnName)
 {
     using var pragma = connection.CreateCommand();
@@ -2065,5 +2298,6 @@ app.Run();
 
 record ImportRow(int RowNumber, string SerialNumber, string ActivationId);
 record LoginRequest(string Username, string Password);
-record LoginResponse(string Token, string Username, string Role);
-record UserDto(int Id, string Username, string Role, DateTime CreatedAtUtc);
+record LoginResponse(string Token, string Username, string Role, IReadOnlyList<string> Permissions, DateTime ExpiresAtUtc);
+record UserAccessDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
+record CreateOrUpdateUserRequest(string Username, string? Password, string Role, bool IsEnabled, IReadOnlyList<string>? Permissions);

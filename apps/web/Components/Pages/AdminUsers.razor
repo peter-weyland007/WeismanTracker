@@ -1,0 +1,226 @@
+@page "/admin/users"
+@attribute [Authorize(Policy = AppPermissions.UserAccess)]
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>User Access</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Admin - User Access</MudText>
+
+<MudPaper Class="pa-4 mb-4 people-form-card" Elevation="1">
+    <div class="people-form-header">
+        <div>
+            <MudText Typo="Typo.h6">@(_editingUserId is null ? "Add User" : "Edit User")</MudText>
+            <MudText Typo="Typo.body2" Class="text-secondary mb-4">Create users, assign roles, and control which pages appear in the menu.</MudText>
+        </div>
+        @if (_editingUserId is not null)
+        {
+            <MudChip T="string" Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small">Editing record</MudChip>
+        }
+    </div>
+
+    <MudGrid Spacing="3" Class="people-form-grid">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="_formUsername" Label="Username" Variant="Variant.Outlined" Required="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTextField @bind-Value="_formPassword" Label="@(_editingUserId is null ? "Password" : "New password (optional)")" Variant="Variant.Outlined" InputType="InputType.Password" Required="@(_editingUserId is null)" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudSelect T="string" @bind-Value="_formRole" Label="Role" Variant="Variant.Outlined">
+                @foreach (var role in _roles)
+                {
+                    <MudSelectItem Value="@role">@role</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3" Class="d-flex align-center">
+            <MudSwitch T="bool" @bind-Value="_formIsEnabled" Label="Enabled" Color="Color.Success" Class="people-form-toggle" />
+        </MudItem>
+        <MudItem xs="12">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Page access</MudText>
+            <div class="permission-grid">
+                @foreach (var permission in _availablePermissions)
+                {
+                    <MudCheckBox T="bool"
+                                 Value="@_selectedPermissions.Contains(permission.Key)"
+                                 ValueChanged="@(value => TogglePermission(permission.Key, value))"
+                                 Label="@permission.Value" />
+                }
+            </div>
+        </MudItem>
+        <MudItem xs="12">
+            <div class="people-form-actions">
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="SelectAllPermissions">Select all</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearPermissions">Clear</MudButton>
+                @if (_editingUserId is not null)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Default" Class="people-form-secondary-action" OnClick="CancelEdit" Disabled="_isSaving">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="SaveAsync" Disabled="_isSaving">Save changes</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="people-form-action" OnClick="SaveAsync" Disabled="_isSaving">Add user</MudButton>
+                }
+            </div>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-2" Elevation="1">
+    <MudTable Items="_users" Hover="true" Dense="true" Loading="_isLoading">
+        <HeaderContent>
+            <MudTh>Username</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Access</MudTh>
+            <MudTh>Created (UTC)</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Username</MudTd>
+            <MudTd>@context.Role</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="@(context.IsEnabled ? Color.Success : Color.Error)" Variant="Variant.Outlined">
+                    @(context.IsEnabled ? "Enabled" : "Disabled")
+                </MudChip>
+            </MudTd>
+            <MudTd>@SummarizePermissions(context.Permissions)</MudTd>
+            <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private readonly string[] _roles = ["Admin", "Manager", "User", "Viewer"];
+    private readonly Dictionary<string, string> _availablePermissions = new()
+    {
+        [AppPermissions.People] = "People",
+        [AppPermissions.Computers] = "Computers",
+        [AppPermissions.MobileDevices] = "Mobile Devices",
+        [AppPermissions.OtherDevices] = "Other Devices",
+        [AppPermissions.CellPhoneAllowance] = "Cell Phone Allowance",
+        [AppPermissions.ActivationKeys] = "Activation Keys",
+        [AppPermissions.ActivityTracker] = "Activity Tracker",
+        [AppPermissions.Integrations] = "Integrations",
+        [AppPermissions.HardDelete] = "Hard Delete",
+        [AppPermissions.UserAccess] = "User Access"
+    };
+
+    private List<UserAccessDto> _users = [];
+    private bool _isLoading = true;
+    private bool _isSaving;
+    private int? _editingUserId;
+    private string _formUsername = string.Empty;
+    private string _formPassword = string.Empty;
+    private string _formRole = "User";
+    private bool _formIsEnabled = true;
+    private HashSet<string> _selectedPermissions = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        _users = (await Api.GetUsersAsync()).ToList();
+        _isLoading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_formUsername))
+        {
+            Snackbar.Add("Username is required.", Severity.Warning);
+            return;
+        }
+
+        if (_editingUserId is null && string.IsNullOrWhiteSpace(_formPassword))
+        {
+            Snackbar.Add("Password is required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var isEditing = _editingUserId is not null;
+        var request = new CreateOrUpdateUserRequest(
+            _formUsername.Trim(),
+            string.IsNullOrWhiteSpace(_formPassword) ? null : _formPassword,
+            _formRole,
+            _formIsEnabled,
+            _selectedPermissions.OrderBy(x => x).ToList());
+
+        var result = !isEditing
+            ? await Api.CreateUserAsync(request)
+            : await Api.UpdateUserAsync(_editingUserId!.Value, request);
+
+        _isSaving = false;
+
+        if (!result.Success)
+        {
+            Snackbar.Add(result.Error ?? "Failed to save user.", Severity.Error);
+            return;
+        }
+
+        await LoadAsync();
+        CancelEdit();
+        Snackbar.Add(isEditing ? "User updated." : "User created.", Severity.Success);
+    }
+
+    private void BeginEdit(UserAccessDto user)
+    {
+        _editingUserId = user.Id;
+        _formUsername = user.Username;
+        _formPassword = string.Empty;
+        _formRole = user.Role;
+        _formIsEnabled = user.IsEnabled;
+        _selectedPermissions = new HashSet<string>(user.Permissions, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void CancelEdit()
+    {
+        _editingUserId = null;
+        _formUsername = string.Empty;
+        _formPassword = string.Empty;
+        _formRole = "User";
+        _formIsEnabled = true;
+        _selectedPermissions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void TogglePermission(string permission, bool isChecked)
+    {
+        if (isChecked)
+        {
+            _selectedPermissions.Add(permission);
+        }
+        else
+        {
+            _selectedPermissions.Remove(permission);
+        }
+    }
+
+    private void SelectAllPermissions()
+    {
+        _selectedPermissions = new HashSet<string>(_availablePermissions.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void ClearPermissions()
+    {
+        _selectedPermissions.Clear();
+    }
+
+    private string SummarizePermissions(IReadOnlyList<string> permissions)
+    {
+        if (permissions.Count == 0)
+        {
+            return "None";
+        }
+
+        return string.Join(", ", permissions.Select(x => _availablePermissions.TryGetValue(x, out var label) ? label : x));
+    }
+}

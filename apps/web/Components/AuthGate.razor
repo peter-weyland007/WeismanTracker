@@ -1,0 +1,96 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+@if (_showAccessDenied)
+{
+    <AccessDenied />
+}
+else
+{
+    <MudProgressCircular Indeterminate="true" Color="Color.Primary" Class="ma-4" />
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public RouteData RouteData { get; set; } = default!;
+
+    private bool _showAccessDenied;
+    private bool _resolved;
+    private bool _rerouted;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _resolved)
+        {
+            return;
+        }
+
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (authState.User.Identity?.IsAuthenticated == true)
+            {
+                _resolved = true;
+
+                if (IsAuthorizedForRoute(authState.User))
+                {
+                    if (!_rerouted)
+                    {
+                        _rerouted = true;
+                        Navigation.NavigateTo(Navigation.Uri, false);
+                    }
+                }
+                else
+                {
+                    _showAccessDenied = true;
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                return;
+            }
+
+            await Task.Delay(150);
+        }
+
+        _resolved = true;
+        var relative = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var returnUrl = string.IsNullOrWhiteSpace(relative) ? "/" : $"/{relative}";
+        Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", true);
+    }
+
+    private bool IsAuthorizedForRoute(ClaimsPrincipal user)
+    {
+        var authorizeAttributes = RouteData.PageType
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+            .Cast<AuthorizeAttribute>()
+            .ToList();
+
+        if (authorizeAttributes.Count == 0)
+        {
+            return user.Identity?.IsAuthenticated == true;
+        }
+
+        foreach (var attribute in authorizeAttributes)
+        {
+            if (!string.IsNullOrWhiteSpace(attribute.Roles))
+            {
+                var roles = attribute.Roles
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+                if (!roles.Any(user.IsInRole))
+                {
+                    return false;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(attribute.Policy) && !user.HasPermission(attribute.Policy))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}

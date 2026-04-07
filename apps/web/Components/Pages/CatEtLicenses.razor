@@ -1,4 +1,5 @@
 @page "/catet/licenses"
+@attribute [Authorize(Policy = AppPermissions.ActivationKeys)]
 @inject CatEtApiClient Api
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -253,7 +254,7 @@
     private async Task LoadAsync()
     {
         _isLoading = true;
-        _computers = (await Api.GetComputersAsync()).ToList();
+        _computers = (await Api.GetLicenseAssignableComputersAsync()).ToList();
         _licenses = (await Api.GetLicensesAsync()).ToList();
         _selectedLicenseIds.RemoveWhere(id => !_licenses.Any(l => l.Id == id));
         _isLoading = false;
@@ -531,36 +532,37 @@
         }
 
         await LoadAsync();
-        Snackbar.Add("Activation reset. Previous Activation ID cleared.", Severity.Success);
+        Snackbar.Add("Activation ID reset and marked available.", Severity.Success);
     }
 
     private async Task ShowEventLogAsync(CatEtLicenseDto row)
     {
-        var events = (await Api.GetLicenseEventsAsync(row.Id)).ToList();
+        var events = await Api.GetLicenseEventsAsync(row.Id);
+
         var parameters = new DialogParameters<web.Components.Dialogs.LicenseEventLogDialog>
         {
-            { x => x.Title, $"{row.SerialNumber}" },
-            { x => x.Events, events }
+            { x => x.Title, row.SerialNumber },
+            { x => x.Events, events.ToList() }
         };
 
         var options = new DialogOptions
         {
-            MaxWidth = MaxWidth.Large,
-            FullWidth = true,
-            CloseButton = true
+            CloseButton = true,
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true
         };
 
-        await DialogService.ShowAsync<web.Components.Dialogs.LicenseEventLogDialog>("Event History", parameters, options);
+        await DialogService.ShowAsync<web.Components.Dialogs.LicenseEventLogDialog>("Activation History", parameters, options);
     }
 
     private async Task DeleteSelectedAsync()
     {
-        if (_selectedLicenseIds.Count == 0)
+        var ids = _selectedLicenseIds.ToList();
+        if (ids.Count == 0)
         {
             return;
         }
 
-        var ids = _selectedLicenseIds.ToList();
         var parameters = new DialogParameters<web.Components.Dialogs.ConfirmDeleteDialog>
         {
             { x => x.Message, $"Soft delete {ids.Count} selected activation key(s)?" }
@@ -580,7 +582,8 @@
             var (ok, err) = await Api.DeleteLicenseAsync(id);
             if (!ok)
             {
-                failures.Add($"{id}: {err ?? "Unknown error"}");
+                failures.Add($"#{id}: {err ?? "unknown error"}");
+                continue;
             }
 
             if (_editingLicenseId == id)
