@@ -96,6 +96,72 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory)
         return (false, await ReadErrorAsync(response));
     }
 
+    public async Task<PagedResultDto<CellPhoneAllowanceDto>> GetCellPhoneAllowancesPageAsync(
+        int page = 1,
+        int pageSize = 50,
+        string? search = null,
+        string? sortBy = null,
+        string? sortDir = null,
+        string? filter = null)
+    {
+        var url = $"/api/allowances/cell-phone?page={Math.Max(1, page)}&pageSize={Math.Clamp(pageSize, 1, 500)}";
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            url += $"&search={Uri.EscapeDataString(search.Trim())}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(sortBy))
+        {
+            url += $"&sortBy={Uri.EscapeDataString(sortBy.Trim())}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(sortDir))
+        {
+            url += $"&sortDir={Uri.EscapeDataString(sortDir.Trim())}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            url += $"&filter={Uri.EscapeDataString(filter.Trim())}";
+        }
+
+        return await _http.GetFromJsonAsync<PagedResultDto<CellPhoneAllowanceDto>>(url)
+            ?? new PagedResultDto<CellPhoneAllowanceDto>([], 0, Math.Max(1, page), Math.Clamp(pageSize, 1, 500));
+    }
+
+    public async Task<(bool Success, string? Error)> CreateCellPhoneAllowanceAsync(CreateCellPhoneAllowanceRequest request)
+    {
+        var response = await _http.PostAsJsonAsync("/api/allowances/cell-phone", request);
+        if (response.IsSuccessStatusCode)
+        {
+            return (true, null);
+        }
+
+        return (false, await ReadErrorAsync(response));
+    }
+
+    public async Task<(bool Success, string? Error)> UpdateCellPhoneAllowanceAsync(int id, CreateCellPhoneAllowanceRequest request)
+    {
+        var response = await _http.PutAsJsonAsync($"/api/allowances/cell-phone/{id}", request);
+        if (response.IsSuccessStatusCode)
+        {
+            return (true, null);
+        }
+
+        return (false, await ReadErrorAsync(response));
+    }
+
+    public async Task<(bool Success, string? Error)> DeleteCellPhoneAllowanceAsync(int id)
+    {
+        var response = await _http.DeleteAsync($"/api/allowances/cell-phone/{id}");
+        if (response.IsSuccessStatusCode)
+        {
+            return (true, null);
+        }
+
+        return (false, await ReadErrorAsync(response));
+    }
+
     public async Task<PagedResultDto<TrackedComputerDto>> GetComputersPageAsync(
         int page = 1,
         int pageSize = 50,

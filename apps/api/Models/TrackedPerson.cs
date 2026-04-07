@@ -12,9 +12,16 @@ public class TrackedPerson
     [MaxLength(256)]
     public string? Email { get; set; }
 
+    [MaxLength(50)]
+    public string? MobilePhone { get; set; }
+
+    [MaxLength(50)]
+    public string? BusinessPhone { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime? DeletedAtUtc { get; set; }
 
     public ICollection<TrackedComputer> Computers { get; set; } = new List<TrackedComputer>();
+    public ICollection<CellPhoneAllowance> CellPhoneAllowances { get; set; } = new List<CellPhoneAllowance>();
 }

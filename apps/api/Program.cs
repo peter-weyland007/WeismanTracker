@@ -45,6 +45,8 @@ using (var scope = app.Services.CreateScope())
     EnsureTrackedComputerPersonNullable(db);
     EnsureCatEtLicenseComputerNullable(db);
     EnsureSoftDeleteColumns(db);
+    EnsureTrackedPersonPhoneColumns(db);
+    EnsureCellPhoneAllowanceSchema(db);
     EnsureTrackedComputerSyncControlColumns(db);
     EnsureEntityResourceCoverageSchema(db);
     EnsureIntegrationProviderConfigSchema(db);
@@ -441,6 +443,154 @@ app.MapPost("/api/integrations/sync-now/microsoft", async (ResourceSyncBackgroun
         : Results.Conflict(result);
 });
 
+app.MapGet("/api/allowances/cell-phone", async (AppDbContext db, int page = 1, int pageSize = 50, string? search = null, string? sortBy = null, string? sortDir = null, string? filter = null) =>
+{
+    var safePage = Math.Max(1, page);
+    var safePageSize = Math.Clamp(pageSize, 1, 500);
+    var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
+    var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+    var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "person" : sortBy.Trim().ToLowerInvariant();
+    var desc = string.Equals(sortDir?.Trim(), "desc", StringComparison.OrdinalIgnoreCase);
+
+    var query = db.CellPhoneAllowances
+        .AsNoTracking()
+        .Include(x => x.TrackedPerson)
+        .Where(x => x.DeletedAtUtc == null && x.TrackedPerson != null && x.TrackedPerson.DeletedAtUtc == null)
+        .AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(searchTerm))
+    {
+        query = query.Where(x =>
+            x.MobilePhoneNumber.ToLower().Contains(searchTerm)
+            || x.TrackedPerson!.FullName.ToLower().Contains(searchTerm)
+            || (x.TrackedPerson.Email != null && x.TrackedPerson.Email.ToLower().Contains(searchTerm)));
+    }
+
+    query = normalizedFilter switch
+    {
+        "granted" => query.Where(x => x.AllowanceGranted),
+        "notgranted" => query.Where(x => !x.AllowanceGranted),
+        _ => query
+    };
+
+    query = (normalizedSortBy, desc) switch
+    {
+        ("mobilenumber", false) => query.OrderBy(x => x.MobilePhoneNumber).ThenBy(x => x.Id),
+        ("mobilenumber", true) => query.OrderByDescending(x => x.MobilePhoneNumber).ThenByDescending(x => x.Id),
+        ("approvedat", false) => query.OrderBy(x => x.ApprovedAtUtc == null).ThenBy(x => x.ApprovedAtUtc).ThenBy(x => x.Id),
+        ("approvedat", true) => query.OrderByDescending(x => x.ApprovedAtUtc == null).ThenByDescending(x => x.ApprovedAtUtc).ThenByDescending(x => x.Id),
+        ("granted", false) => query.OrderBy(x => x.AllowanceGranted).ThenBy(x => x.Id),
+        ("granted", true) => query.OrderByDescending(x => x.AllowanceGranted).ThenByDescending(x => x.Id),
+        ("createdat", false) => query.OrderBy(x => x.CreatedAtUtc).ThenBy(x => x.Id),
+        ("createdat", true) => query.OrderByDescending(x => x.CreatedAtUtc).ThenByDescending(x => x.Id),
+        ("person", true) => query.OrderByDescending(x => x.TrackedPerson!.FullName).ThenByDescending(x => x.Id),
+        _ => query.OrderBy(x => x.TrackedPerson!.FullName).ThenBy(x => x.Id)
+    };
+
+    var totalCount = await query.CountAsync();
+    var items = await query
+        .Skip((safePage - 1) * safePageSize)
+        .Take(safePageSize)
+        .Select(x => new CellPhoneAllowanceDto(
+            x.Id,
+            x.TrackedPersonId,
+            x.TrackedPerson!.FullName,
+            x.TrackedPerson.Email,
+            x.MobilePhoneNumber,
+            x.AllowanceGranted,
+            x.ApprovedAtUtc,
+            x.CreatedAtUtc))
+        .ToListAsync();
+
+    return Results.Ok(new PagedResultDto<CellPhoneAllowanceDto>(items, totalCount, safePage, safePageSize));
+});
+
+app.MapPost("/api/allowances/cell-phone", async (CreateCellPhoneAllowanceRequest request, AppDbContext db) =>
+{
+    var person = await db.TrackedPeople.FirstOrDefaultAsync(x => x.Id == request.TrackedPersonId && x.DeletedAtUtc == null);
+    if (person is null)
+    {
+        return Results.BadRequest(new { message = "TrackedPersonId does not exist." });
+    }
+
+    if (string.IsNullOrWhiteSpace(request.MobilePhoneNumber))
+    {
+        return Results.BadRequest(new { message = "Mobile phone number is required." });
+    }
+
+    var allowance = new CellPhoneAllowance
+    {
+        TrackedPersonId = request.TrackedPersonId,
+        MobilePhoneNumber = request.MobilePhoneNumber.Trim(),
+        AllowanceGranted = request.AllowanceGranted,
+        ApprovedAtUtc = request.ApprovedAtUtc?.Date,
+        CreatedAtUtc = DateTime.UtcNow
+    };
+
+    db.CellPhoneAllowances.Add(allowance);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new CellPhoneAllowanceDto(
+        allowance.Id,
+        allowance.TrackedPersonId,
+        person.FullName,
+        person.Email,
+        allowance.MobilePhoneNumber,
+        allowance.AllowanceGranted,
+        allowance.ApprovedAtUtc,
+        allowance.CreatedAtUtc));
+});
+
+app.MapPut("/api/allowances/cell-phone/{id:int}", async (int id, CreateCellPhoneAllowanceRequest request, AppDbContext db) =>
+{
+    var allowance = await db.CellPhoneAllowances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAtUtc == null);
+    if (allowance is null)
+    {
+        return Results.NotFound(new { message = "Cell phone allowance not found." });
+    }
+
+    var person = await db.TrackedPeople.FirstOrDefaultAsync(x => x.Id == request.TrackedPersonId && x.DeletedAtUtc == null);
+    if (person is null)
+    {
+        return Results.BadRequest(new { message = "TrackedPersonId does not exist." });
+    }
+
+    if (string.IsNullOrWhiteSpace(request.MobilePhoneNumber))
+    {
+        return Results.BadRequest(new { message = "Mobile phone number is required." });
+    }
+
+    allowance.TrackedPersonId = request.TrackedPersonId;
+    allowance.MobilePhoneNumber = request.MobilePhoneNumber.Trim();
+    allowance.AllowanceGranted = request.AllowanceGranted;
+    allowance.ApprovedAtUtc = request.ApprovedAtUtc?.Date;
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new CellPhoneAllowanceDto(
+        allowance.Id,
+        allowance.TrackedPersonId,
+        person.FullName,
+        person.Email,
+        allowance.MobilePhoneNumber,
+        allowance.AllowanceGranted,
+        allowance.ApprovedAtUtc,
+        allowance.CreatedAtUtc));
+});
+
+app.MapDelete("/api/allowances/cell-phone/{id:int}", async (int id, AppDbContext db) =>
+{
+    var allowance = await db.CellPhoneAllowances.FirstOrDefaultAsync(x => x.Id == id && x.DeletedAtUtc == null);
+    if (allowance is null)
+    {
+        return Results.NotFound(new { message = "Cell phone allowance not found." });
+    }
+
+    allowance.DeletedAtUtc = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok();
+});
+
 app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSize = 50, string? search = null, string? sortBy = null, string? sortDir = null, string? filter = null) =>
 {
     var safePage = Math.Max(1, page);
@@ -458,7 +608,9 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     {
         query = query.Where(p =>
             p.FullName.ToLower().Contains(searchTerm)
-            || (p.Email != null && p.Email.ToLower().Contains(searchTerm)));
+            || (p.Email != null && p.Email.ToLower().Contains(searchTerm))
+            || (p.MobilePhone != null && p.MobilePhone.ToLower().Contains(searchTerm))
+            || (p.BusinessPhone != null && p.BusinessPhone.ToLower().Contains(searchTerm)));
     }
 
     query = normalizedFilter switch
@@ -472,6 +624,10 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     {
         ("email", false) => query.OrderBy(p => p.Email == null).ThenBy(p => p.Email).ThenBy(p => p.Id),
         ("email", true) => query.OrderByDescending(p => p.Email == null).ThenByDescending(p => p.Email).ThenByDescending(p => p.Id),
+        ("mobilephone", false) => query.OrderBy(p => p.MobilePhone == null).ThenBy(p => p.MobilePhone).ThenBy(p => p.Id),
+        ("mobilephone", true) => query.OrderByDescending(p => p.MobilePhone == null).ThenByDescending(p => p.MobilePhone).ThenByDescending(p => p.Id),
+        ("businessphone", false) => query.OrderBy(p => p.BusinessPhone == null).ThenBy(p => p.BusinessPhone).ThenBy(p => p.Id),
+        ("businessphone", true) => query.OrderByDescending(p => p.BusinessPhone == null).ThenByDescending(p => p.BusinessPhone).ThenByDescending(p => p.Id),
         ("createdat", false) => query.OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id),
         ("createdat", true) => query.OrderByDescending(p => p.CreatedAtUtc).ThenByDescending(p => p.Id),
         ("fullname", true) => query.OrderByDescending(p => p.FullName).ThenByDescending(p => p.Id),
@@ -482,7 +638,7 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     var people = await query
         .Skip((safePage - 1) * safePageSize)
         .Take(safePageSize)
-        .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.CreatedAtUtc))
+        .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.MobilePhone, p.BusinessPhone, p.CreatedAtUtc))
         .ToListAsync();
 
     return Results.Ok(new PagedResultDto<TrackedPersonDto>(people, totalCount, safePage, safePageSize));
@@ -499,6 +655,8 @@ app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppD
     {
         FullName = request.FullName.Trim(),
         Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
+        MobilePhone = string.IsNullOrWhiteSpace(request.MobilePhone) ? null : request.MobilePhone.Trim(),
+        BusinessPhone = string.IsNullOrWhiteSpace(request.BusinessPhone) ? null : request.BusinessPhone.Trim(),
         CreatedAtUtc = DateTime.UtcNow
     };
 
@@ -513,7 +671,7 @@ app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppD
         return Results.Conflict(new { message = "Email already exists." });
     }
 
-    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.CreatedAtUtc));
+    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.MobilePhone, person.BusinessPhone, person.CreatedAtUtc));
 });
 
 app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonRequest request, AppDbContext db) =>
@@ -531,6 +689,8 @@ app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonReque
 
     person.FullName = request.FullName.Trim();
     person.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
+    person.MobilePhone = string.IsNullOrWhiteSpace(request.MobilePhone) ? null : request.MobilePhone.Trim();
+    person.BusinessPhone = string.IsNullOrWhiteSpace(request.BusinessPhone) ? null : request.BusinessPhone.Trim();
 
     try
     {
@@ -541,7 +701,7 @@ app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonReque
         return Results.Conflict(new { message = "Email already exists." });
     }
 
-    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.CreatedAtUtc));
+    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.MobilePhone, person.BusinessPhone, person.CreatedAtUtc));
 });
 
 app.MapDelete("/api/catet/people/{id:int}", async (int id, AppDbContext db) =>
@@ -556,6 +716,12 @@ app.MapDelete("/api/catet/people/{id:int}", async (int id, AppDbContext db) =>
     if (hasComputers)
     {
         return Results.BadRequest(new { message = "Cannot delete person with assigned computers. Unassign or reassign first." });
+    }
+
+    var hasAllowances = await db.CellPhoneAllowances.AnyAsync(x => x.TrackedPersonId == id && x.DeletedAtUtc == null);
+    if (hasAllowances)
+    {
+        return Results.BadRequest(new { message = "Cannot delete person with cell phone allowance records. Remove those records first." });
     }
 
     person.DeletedAtUtc = DateTime.UtcNow;
@@ -1265,6 +1431,12 @@ app.MapDelete("/api/admin/people/{id:int}/hard-delete", async (int id, AppDbCont
         return Results.BadRequest(new { message = "Cannot hard delete person while computers still reference them." });
     }
 
+    var hasAnyAllowances = await db.CellPhoneAllowances.AnyAsync(x => x.TrackedPersonId == id);
+    if (hasAnyAllowances)
+    {
+        return Results.BadRequest(new { message = "Cannot hard delete person while cell phone allowances still reference them." });
+    }
+
     db.TrackedPeople.Remove(person);
     await db.SaveChangesAsync();
     return Results.Ok();
@@ -1434,6 +1606,67 @@ ALTER TABLE ""TrackedComputers"" ADD COLUMN ""DeletedAtUtc"" TEXT NULL;
 ALTER TABLE ""CatEtLicenses"" ADD COLUMN ""DeletedAtUtc"" TEXT NULL;";
 
     try { command.ExecuteNonQuery(); } catch { }
+}
+
+void EnsureTrackedPersonPhoneColumns(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    using var columnsCommand = connection.CreateCommand();
+    columnsCommand.CommandText = "PRAGMA table_info('TrackedPeople');";
+    var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    using (var reader = columnsCommand.ExecuteReader())
+    {
+        while (reader.Read())
+        {
+            existingColumns.Add(reader.GetString(1));
+        }
+    }
+
+    if (!existingColumns.Contains("MobilePhone"))
+    {
+        using var addMobilePhone = connection.CreateCommand();
+        addMobilePhone.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"MobilePhone\" TEXT NULL;";
+        addMobilePhone.ExecuteNonQuery();
+    }
+
+    if (!existingColumns.Contains("BusinessPhone"))
+    {
+        using var addBusinessPhone = connection.CreateCommand();
+        addBusinessPhone.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"BusinessPhone\" TEXT NULL;";
+        addBusinessPhone.ExecuteNonQuery();
+    }
+}
+
+void EnsureCellPhoneAllowanceSchema(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    using var command = connection.CreateCommand();
+    command.CommandText = @"
+CREATE TABLE IF NOT EXISTS ""CellPhoneAllowances"" (
+    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_CellPhoneAllowances"" PRIMARY KEY AUTOINCREMENT,
+    ""TrackedPersonId"" INTEGER NOT NULL,
+    ""MobilePhoneNumber"" TEXT NOT NULL,
+    ""AllowanceGranted"" INTEGER NOT NULL DEFAULT 0,
+    ""ApprovedAtUtc"" TEXT NULL,
+    ""CreatedAtUtc"" TEXT NOT NULL,
+    ""DeletedAtUtc"" TEXT NULL,
+    CONSTRAINT ""FK_CellPhoneAllowances_TrackedPeople_TrackedPersonId""
+        FOREIGN KEY (""TrackedPersonId"") REFERENCES ""TrackedPeople"" (""Id"") ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS ""IX_CellPhoneAllowances_TrackedPersonId"" ON ""CellPhoneAllowances"" (""TrackedPersonId"");";
+    command.ExecuteNonQuery();
 }
 
 void EnsureTrackedComputerSyncControlColumns(AppDbContext db)

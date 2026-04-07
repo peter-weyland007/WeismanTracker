@@ -12,7 +12,9 @@ public sealed record GraphUserDto(
     string ExternalId,
     string? UserPrincipalName,
     string? Mail,
-    string? DisplayName);
+    string? DisplayName,
+    string? MobilePhone,
+    string? BusinessPhone);
 
 public sealed record GraphDeviceDto(
     string ExternalId,

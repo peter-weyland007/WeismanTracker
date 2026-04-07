@@ -19,13 +19,19 @@
                 <MudTextField @bind-Value="_editAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
             </MudItem>
             <MudItem xs="12" md="2">
-                <MudSelect T="int?" @bind-Value="_editPersonId" Label="Assigned User" Variant="Variant.Outlined">
-                    <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
-                    @foreach (var person in _people)
-                    {
-                        <MudSelectItem Value="@((int?)person.Id)">@person.FullName</MudSelectItem>
-                    }
-                </MudSelect>
+                <MudAutocomplete T="TrackedPersonDto"
+                                 Value="_editSelectedPerson"
+                                 ValueChanged="OnEditPersonChanged"
+                                 Label="Assigned User"
+                                 Variant="Variant.Outlined"
+                                 SearchFunc="SearchPeopleAsync"
+                                 ToStringFunc="FormatPersonOption"
+                                 Clearable="true"
+                                 ResetValueOnEmptyText="true"
+                                 CoerceText="false"
+                                 Dense="true"
+                                 MaxItems="50"
+                                 Placeholder="Type to filter users" />
             </MudItem>
             <MudItem xs="12" md="2">
                 <MudSelect T="string" @bind-Value="_editCategory" Label="Category" Variant="Variant.Outlined">
@@ -121,6 +127,7 @@
     private int? _editingDeviceId;
     private string _editHostname = string.Empty;
     private string _editAssetTag = string.Empty;
+    private TrackedPersonDto? _editSelectedPerson;
     private int? _editPersonId;
     private string _editCategory = "Other Device";
 
@@ -129,6 +136,47 @@
     protected override async Task OnInitializedAsync()
     {
         _people = (await Api.GetPeopleAsync()).ToList();
+    }
+
+    private Task<IEnumerable<TrackedPersonDto>> SearchPeopleAsync(string value, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Task.FromResult<IEnumerable<TrackedPersonDto>>(_people.OrderBy(x => x.FullName).Take(50));
+        }
+
+        var term = value.Trim();
+        var results = _people
+            .Where(person =>
+                person.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(person.Email) && person.Email.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(person.MobilePhone) && person.MobilePhone.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(person.BusinessPhone) && person.BusinessPhone.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(x => x.FullName)
+            .Take(50);
+
+        return Task.FromResult<IEnumerable<TrackedPersonDto>>(results);
+    }
+
+    private string FormatPersonOption(TrackedPersonDto? person)
+    {
+        if (person is null)
+        {
+            return string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(person.Email)
+            ? person.FullName
+            : $"{person.FullName} ({person.Email})";
+    }
+
+    private Task OnEditPersonChanged(TrackedPersonDto? person)
+    {
+        _editSelectedPerson = person;
+        _editPersonId = person?.Id;
+        return Task.CompletedTask;
     }
 
     private async Task<TableData<TrackedComputerDto>> LoadServerData(TableState state, CancellationToken token)
@@ -174,6 +222,7 @@
         _editingDeviceId = device.Id;
         _editHostname = device.Hostname;
         _editAssetTag = device.AssetTag;
+        _editSelectedPerson = _people.FirstOrDefault(x => x.Id == device.TrackedPersonId);
         _editPersonId = device.TrackedPersonId;
         _editCategory = string.IsNullOrWhiteSpace(device.AssetCategory) ? "Other Device" : device.AssetCategory;
     }
@@ -183,6 +232,7 @@
         _editingDeviceId = null;
         _editHostname = string.Empty;
         _editAssetTag = string.Empty;
+        _editSelectedPerson = null;
         _editPersonId = null;
         _editCategory = "Other Device";
     }

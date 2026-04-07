@@ -292,6 +292,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                             if (matchedEntityId is not null)
                             {
                                 entityId = matchedEntityId;
+                                await ApplyGraphUserFieldsToTrackedPersonAsync(db, entityId.Value, user, cancellationToken);
                                 sourceExistingMatchedCount++;
                             }
                             else
@@ -621,16 +622,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
 
         if (existing is not null)
         {
-            if (existing.DeletedAtUtc is not null)
-            {
-                existing.DeletedAtUtc = null;
-            }
-
-            if (string.IsNullOrWhiteSpace(existing.FullName) && !string.IsNullOrWhiteSpace(user.DisplayName))
-            {
-                existing.FullName = user.DisplayName.Trim();
-            }
-
+            await ApplyGraphUserFieldsToTrackedPersonAsync(db, existing.Id, user, cancellationToken);
             return existing.Id;
         }
 
@@ -641,13 +633,55 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         var person = new TrackedPerson
         {
             FullName = fullName.Length > 120 ? fullName[..120] : fullName,
-            Email = normalizedEmail
+            Email = normalizedEmail,
+            MobilePhone = string.IsNullOrWhiteSpace(user.MobilePhone) ? null : user.MobilePhone.Trim(),
+            BusinessPhone = string.IsNullOrWhiteSpace(user.BusinessPhone) ? null : user.BusinessPhone.Trim()
         };
 
         db.TrackedPeople.Add(person);
         await db.SaveChangesAsync(cancellationToken);
         _logger.LogInformation("Auto-created tracked person from Microsoft sync: {Email}", normalizedEmail);
         return person.Id;
+    }
+
+    private static async Task ApplyGraphUserFieldsToTrackedPersonAsync(AppDbContext db, int trackedPersonId, GraphUserDto user, CancellationToken cancellationToken)
+    {
+        var person = await db.TrackedPeople.FirstOrDefaultAsync(x => x.Id == trackedPersonId, cancellationToken);
+        if (person is null)
+        {
+            return;
+        }
+
+        var changed = false;
+
+        if (person.DeletedAtUtc is not null)
+        {
+            person.DeletedAtUtc = null;
+            changed = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(person.FullName) && !string.IsNullOrWhiteSpace(user.DisplayName))
+        {
+            person.FullName = user.DisplayName.Trim();
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(user.MobilePhone) && !string.Equals(person.MobilePhone, user.MobilePhone.Trim(), StringComparison.Ordinal))
+        {
+            person.MobilePhone = user.MobilePhone.Trim();
+            changed = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(user.BusinessPhone) && !string.Equals(person.BusinessPhone, user.BusinessPhone.Trim(), StringComparison.Ordinal))
+        {
+            person.BusinessPhone = user.BusinessPhone.Trim();
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task<int?> GetOrCreateTrackedComputerAsync(

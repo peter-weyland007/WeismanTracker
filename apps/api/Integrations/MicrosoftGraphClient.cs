@@ -50,7 +50,7 @@ public sealed class MicrosoftGraphClient : IMicrosoftGraphClient
             return [];
         }
 
-        var endpoint = $"{options.GraphBaseUrl.TrimEnd('/')}/v1.0/users?$select=id,displayName,userPrincipalName,mail&$top={Math.Max(1, options.PageSize)}";
+        var endpoint = $"{options.GraphBaseUrl.TrimEnd('/')}/v1.0/users?$select=id,displayName,userPrincipalName,mail,mobilePhone,businessPhones&$top={Math.Max(1, options.PageSize)}";
         var rows = await GetPagedGraphRowsAsync(endpoint, token, cancellationToken);
 
         return rows
@@ -58,7 +58,9 @@ public sealed class MicrosoftGraphClient : IMicrosoftGraphClient
                 ExternalId: ReadString(x, "id") ?? string.Empty,
                 UserPrincipalName: ReadString(x, "userPrincipalName"),
                 Mail: ReadString(x, "mail"),
-                DisplayName: ReadString(x, "displayName")))
+                DisplayName: ReadString(x, "displayName"),
+                MobilePhone: ReadString(x, "mobilePhone"),
+                BusinessPhone: ReadFirstStringFromArray(x, "businessPhones")))
             .Where(x => !string.IsNullOrWhiteSpace(x.ExternalId))
             .ToList();
     }
@@ -403,5 +405,29 @@ public sealed class MicrosoftGraphClient : IMicrosoftGraphClient
         }
 
         return ReadString(parentEl, child);
+    }
+
+    private static string? ReadFirstStringFromArray(JsonElement obj, string name)
+    {
+        if (obj.ValueKind != JsonValueKind.Object || !obj.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var item in value.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var text = item.GetString();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text;
+            }
+        }
+
+        return null;
     }
 }

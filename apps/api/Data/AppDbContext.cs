@@ -8,6 +8,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<TrackedPerson> TrackedPeople => Set<TrackedPerson>();
     public DbSet<TrackedComputer> TrackedComputers => Set<TrackedComputer>();
+    public DbSet<CellPhoneAllowance> CellPhoneAllowances => Set<CellPhoneAllowance>();
     public DbSet<CatEtLicense> CatEtLicenses => Set<CatEtLicense>();
     public DbSet<CatEtActivationEvent> CatEtActivationEvents => Set<CatEtActivationEvent>();
     public DbSet<ResourceDefinition> ResourceDefinitions => Set<ResourceDefinition>();
@@ -34,6 +35,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<CatEtLicense>()
             .HasIndex(l => l.SerialNumber)
             .IsUnique();
+
+        modelBuilder.Entity<CellPhoneAllowance>()
+            .HasOne(a => a.TrackedPerson)
+            .WithMany(p => p.CellPhoneAllowances)
+            .HasForeignKey(a => a.TrackedPersonId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<CellPhoneAllowance>()
+            .HasIndex(a => a.TrackedPersonId);
 
         modelBuilder.Entity<TrackedComputer>()
             .HasOne(c => c.TrackedPerson)

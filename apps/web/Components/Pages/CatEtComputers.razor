@@ -17,13 +17,19 @@
             <MudTextField @bind-Value="_newAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
         </MudItem>
         <MudItem xs="12" md="4">
-            <MudSelect T="int?" @bind-Value="_selectedPersonId" Label="Assigned User (optional)" Variant="Variant.Outlined">
-                <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
-                @foreach (var person in _people)
-                {
-                    <MudSelectItem Value="@((int?)person.Id)">@person.FullName</MudSelectItem>
-                }
-            </MudSelect>
+            <MudAutocomplete T="TrackedPersonDto"
+                             Value="_selectedPerson"
+                             ValueChanged="OnSelectedPersonChanged"
+                             Label="Assigned User (optional)"
+                             Variant="Variant.Outlined"
+                             SearchFunc="SearchPeopleAsync"
+                             ToStringFunc="FormatPersonOption"
+                             Clearable="true"
+                             ResetValueOnEmptyText="true"
+                             CoerceText="false"
+                             Dense="true"
+                             MaxItems="50"
+                             Placeholder="Type to filter users" />
         </MudItem>
         <MudItem xs="12" md="2" Class="d-flex align-end">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreateComputerAsync" Disabled="_isSaving">Add</MudButton>
@@ -43,13 +49,19 @@
                 <MudTextField @bind-Value="_editAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
             </MudItem>
             <MudItem xs="12" md="3">
-                <MudSelect T="int?" @bind-Value="_editPersonId" Label="Assigned User (optional)" Variant="Variant.Outlined">
-                    <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
-                    @foreach (var person in _people)
-                    {
-                        <MudSelectItem Value="@((int?)person.Id)">@person.FullName</MudSelectItem>
-                    }
-                </MudSelect>
+                <MudAutocomplete T="TrackedPersonDto"
+                                 Value="_editSelectedPerson"
+                                 ValueChanged="OnEditPersonChanged"
+                                 Label="Assigned User (optional)"
+                                 Variant="Variant.Outlined"
+                                 SearchFunc="SearchPeopleAsync"
+                                 ToStringFunc="FormatPersonOption"
+                                 Clearable="true"
+                                 ResetValueOnEmptyText="true"
+                                 CoerceText="false"
+                                 Dense="true"
+                                 MaxItems="50"
+                                 Placeholder="Type to filter users" />
             </MudItem>
             <MudItem xs="12" md="2">
                 <MudSelect T="string" @bind-Value="_editCategory" Label="Category" Variant="Variant.Outlined">
@@ -172,11 +184,13 @@
 
     private string _newHostname = string.Empty;
     private string _newAssetTag = string.Empty;
+    private TrackedPersonDto? _selectedPerson;
     private int? _selectedPersonId;
 
     private int? _editingComputerId;
     private string _editHostname = string.Empty;
     private string _editAssetTag = string.Empty;
+    private TrackedPersonDto? _editSelectedPerson;
     private int? _editPersonId;
     private string _editCategory = "Computer";
 
@@ -262,6 +276,54 @@
         _people = (await Api.GetPeopleAsync()).ToList();
     }
 
+    private Task<IEnumerable<TrackedPersonDto>> SearchPeopleAsync(string value, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return Task.FromResult<IEnumerable<TrackedPersonDto>>(_people.OrderBy(x => x.FullName).Take(50));
+        }
+
+        var term = value.Trim();
+        var results = _people
+            .Where(person =>
+                person.FullName.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(person.Email) && person.Email.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(person.MobilePhone) && person.MobilePhone.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(person.BusinessPhone) && person.BusinessPhone.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(x => x.FullName)
+            .Take(50);
+
+        return Task.FromResult<IEnumerable<TrackedPersonDto>>(results);
+    }
+
+    private string FormatPersonOption(TrackedPersonDto? person)
+    {
+        if (person is null)
+        {
+            return string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(person.Email)
+            ? person.FullName
+            : $"{person.FullName} ({person.Email})";
+    }
+
+    private Task OnSelectedPersonChanged(TrackedPersonDto? person)
+    {
+        _selectedPerson = person;
+        _selectedPersonId = person?.Id;
+        return Task.CompletedTask;
+    }
+
+    private Task OnEditPersonChanged(TrackedPersonDto? person)
+    {
+        _editSelectedPerson = person;
+        _editPersonId = person?.Id;
+        return Task.CompletedTask;
+    }
+
     private async Task CreateComputerAsync()
     {
         if (string.IsNullOrWhiteSpace(_newHostname) || string.IsNullOrWhiteSpace(_newAssetTag))
@@ -282,6 +344,7 @@
 
         _newHostname = string.Empty;
         _newAssetTag = string.Empty;
+        _selectedPerson = null;
         _selectedPersonId = null;
         await RefreshPeopleForPickerAsync();
         await ReloadComputersTableAsync();
@@ -293,6 +356,7 @@
         _editingComputerId = computer.Id;
         _editHostname = computer.Hostname;
         _editAssetTag = computer.AssetTag;
+        _editSelectedPerson = _people.FirstOrDefault(x => x.Id == computer.TrackedPersonId);
         _editPersonId = computer.TrackedPersonId;
         _editCategory = string.IsNullOrWhiteSpace(computer.AssetCategory) ? "Computer" : computer.AssetCategory;
     }
@@ -302,6 +366,7 @@
         _editingComputerId = null;
         _editHostname = string.Empty;
         _editAssetTag = string.Empty;
+        _editSelectedPerson = null;
         _editPersonId = null;
         _editCategory = "Computer";
     }

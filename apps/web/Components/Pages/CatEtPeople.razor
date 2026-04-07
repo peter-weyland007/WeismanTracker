@@ -10,11 +10,17 @@
 <MudPaper Class="pa-4 mb-4" Elevation="1">
     <MudText Typo="Typo.h6" Class="mb-3">Add Person</MudText>
     <MudGrid>
-        <MudItem xs="12" md="5">
+        <MudItem xs="12" md="3">
             <MudTextField @bind-Value="_newFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" md="5">
+        <MudItem xs="12" md="3">
             <MudTextField @bind-Value="_newEmail" Label="Email (optional)" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudTextField @bind-Value="_newMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudTextField @bind-Value="_newBusinessPhone" Label="Business phone" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" md="2" Class="d-flex align-end">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="CreatePersonAsync" Disabled="_isSaving">Add</MudButton>
@@ -27,11 +33,17 @@
     <MudPaper Class="pa-4 mb-4" Elevation="1">
         <MudText Typo="Typo.h6" Class="mb-3">Edit Person</MudText>
         <MudGrid>
-            <MudItem xs="12" md="5">
+            <MudItem xs="12" md="3">
                 <MudTextField @bind-Value="_editFullName" Label="Full name" Variant="Variant.Outlined" Required="true" />
             </MudItem>
-            <MudItem xs="12" md="5">
+            <MudItem xs="12" md="3">
                 <MudTextField @bind-Value="_editEmail" Label="Email (optional)" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudTextField @bind-Value="_editMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudTextField @bind-Value="_editBusinessPhone" Label="Business phone" Variant="Variant.Outlined" />
             </MudItem>
             <MudItem xs="12" md="2" Class="d-flex align-end gap-2">
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SaveEditAsync" Disabled="_isSaving">Update</MudButton>
@@ -45,7 +57,7 @@
     <MudGrid Class="pa-2">
         <MudItem xs="12" md="8">
             <MudTextField @bind-Value="_searchText"
-                          Placeholder="Search name or email"
+                          Placeholder="Search name, email, or phone"
                           Variant="Variant.Outlined"
                           Adornment="Adornment.Start"
                           AdornmentIcon="@Icons.Material.Filled.Search"
@@ -78,12 +90,16 @@
         <HeaderContent>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="fullName">Name</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="email">Email</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="mobilePhone">Mobile</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="businessPhone">Business</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="createdAt">Created (UTC)</MudTableSortLabel></MudTh>
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd>@context.FullName</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.Email) ? "-" : context.Email)</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.MobilePhone) ? "-" : context.MobilePhone)</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.BusinessPhone) ? "-" : context.BusinessPhone)</MudTd>
             <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
             <MudTd>
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => BeginEdit(context)">Edit</MudButton>
@@ -112,10 +128,14 @@
 
     private string _newFullName = string.Empty;
     private string _newEmail = string.Empty;
+    private string _newMobilePhone = string.Empty;
+    private string _newBusinessPhone = string.Empty;
 
     private int? _editingPersonId;
     private string _editFullName = string.Empty;
     private string _editEmail = string.Empty;
+    private string _editMobilePhone = string.Empty;
+    private string _editBusinessPhone = string.Empty;
 
     private async Task<TableData<TrackedPersonDto>> LoadPeopleServerData(TableState state, CancellationToken cancellationToken)
     {
@@ -182,7 +202,11 @@
         }
 
         _isSaving = true;
-        var (success, error) = await Api.CreatePersonAsync(new CreateTrackedPersonRequest(_newFullName.Trim(), string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail.Trim()));
+        var (success, error) = await Api.CreatePersonAsync(new CreateTrackedPersonRequest(
+            _newFullName.Trim(),
+            string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail.Trim(),
+            string.IsNullOrWhiteSpace(_newMobilePhone) ? null : _newMobilePhone.Trim(),
+            string.IsNullOrWhiteSpace(_newBusinessPhone) ? null : _newBusinessPhone.Trim()));
         _isSaving = false;
 
         if (!success)
@@ -193,6 +217,8 @@
 
         _newFullName = string.Empty;
         _newEmail = string.Empty;
+        _newMobilePhone = string.Empty;
+        _newBusinessPhone = string.Empty;
         await ReloadPeopleTableAsync();
         Snackbar.Add("Person added.", Severity.Success);
     }
@@ -202,6 +228,8 @@
         _editingPersonId = person.Id;
         _editFullName = person.FullName;
         _editEmail = person.Email ?? string.Empty;
+        _editMobilePhone = person.MobilePhone ?? string.Empty;
+        _editBusinessPhone = person.BusinessPhone ?? string.Empty;
     }
 
     private void CancelEdit()
@@ -209,6 +237,8 @@
         _editingPersonId = null;
         _editFullName = string.Empty;
         _editEmail = string.Empty;
+        _editMobilePhone = string.Empty;
+        _editBusinessPhone = string.Empty;
     }
 
     private async Task SaveEditAsync()
@@ -220,7 +250,11 @@
         }
 
         _isSaving = true;
-        var (success, error) = await Api.UpdatePersonAsync(_editingPersonId.Value, new CreateTrackedPersonRequest(_editFullName.Trim(), string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim()));
+        var (success, error) = await Api.UpdatePersonAsync(_editingPersonId.Value, new CreateTrackedPersonRequest(
+            _editFullName.Trim(),
+            string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim(),
+            string.IsNullOrWhiteSpace(_editMobilePhone) ? null : _editMobilePhone.Trim(),
+            string.IsNullOrWhiteSpace(_editBusinessPhone) ? null : _editBusinessPhone.Trim()));
         _isSaving = false;
 
         if (!success)
