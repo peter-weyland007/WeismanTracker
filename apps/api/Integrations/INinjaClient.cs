@@ -11,4 +11,8 @@ public sealed record NinjaDeviceDto(
     string? SerialNumber,
     string? Hostname,
     string? Os,
+    string? Manufacturer,
+    string? Model,
+    string? DeviceType,
+    string? ChassisType,
     DateTime? LastSeenAtUtc);

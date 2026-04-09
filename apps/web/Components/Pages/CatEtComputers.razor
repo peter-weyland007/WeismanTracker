@@ -20,16 +20,35 @@
         }
     </div>
     <MudGrid Spacing="3" Class="people-form-grid">
-        <MudItem xs="12" sm="6" lg="2">
+        <MudItem xs="12" md="4">
             <MudTextField @bind-Value="ComputerFormHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" sm="6" lg="2">
-            <MudTextField @bind-Value="ComputerFormAlias" Label="Alias (optional)" Variant="Variant.Outlined" />
+        <MudItem xs="12" md="4">
+            <MudTextField @bind-Value="ComputerFormSerialNumber" Label="Serial Number (optional)" Variant="Variant.Outlined" />
         </MudItem>
-        <MudItem xs="12" sm="6" lg="2">
+        <MudItem xs="12" md="4">
             <MudTextField @bind-Value="ComputerFormAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" sm="6" lg="4">
+        <MudItem xs="12" md="4">
+            <MudSelect T="string" @bind-Value="ComputerFormCategory" Label="Category" Variant="Variant.Outlined">
+                @foreach (var category in _assignableCategories)
+                {
+                    <MudSelectItem Value="@category">@category</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudSelect T="string" @bind-Value="ComputerFormVariant" Label="Variant" Variant="Variant.Outlined">
+                @foreach (var variant in _computerVariants)
+                {
+                    <MudSelectItem Value="@variant">@variant</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="4">
+            <MudTextField @bind-Value="ComputerFormAlias" Label="Alias (optional)" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" md="4">
             <MudAutocomplete T="TrackedPersonDto"
                              Value="ComputerFormPerson"
                              ValueChanged="OnComputerPersonChanged"
@@ -43,21 +62,6 @@
                              Dense="true"
                              MaxItems="50"
                              Placeholder="Type to filter users" />
-        </MudItem>
-        <MudItem xs="12" sm="6" lg="2">
-            @if (_editingComputerId is not null)
-            {
-                <MudSelect T="string" @bind-Value="ComputerFormCategory" Label="Category" Variant="Variant.Outlined">
-                    @foreach (var category in _assignableCategories)
-                    {
-                        <MudSelectItem Value="@category">@category</MudSelectItem>
-                    }
-                </MudSelect>
-            }
-            else
-            {
-                <MudTextField Value='@("Computer")' Label="Category" Variant="Variant.Outlined" ReadOnly="true" />
-            }
         </MudItem>
         <MudItem xs="12">
             <div class="people-form-actions">
@@ -79,7 +83,7 @@
     <MudGrid Class="pa-2">
         <MudItem xs="12" md="6">
             <MudTextField @bind-Value="_searchText"
-                          Placeholder="Search hostname, alias, asset tag, or assigned user"
+                          Placeholder="Search hostname, alias, asset tag, serial, variant, or assigned user"
                           Variant="Variant.Outlined"
                           Adornment="Adornment.Start"
                           AdornmentIcon="@Icons.Material.Filled.Search"
@@ -124,6 +128,8 @@
         <HeaderContent>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="hostname">Hostname</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="assetTag">Asset Tag</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="serialNumber">Serial</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="computerVariant">Variant</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="assignee">Assigned User</MudTableSortLabel></MudTh>
             <MudTh>Category</MudTh>
             <MudTh><MudTableSortLabel T="TrackedComputerDto" SortLabel="createdAt">Created (UTC)</MudTableSortLabel></MudTh>
@@ -146,6 +152,8 @@
                 }
             </MudTd>
             <MudTd>@context.AssetTag</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.SerialNumber) ? "—" : context.SerialNumber)</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.ComputerVariant) ? "Unknown" : context.ComputerVariant)</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonName) ? "Unassigned" : context.TrackedPersonName)</MudTd>
             <MudTd>@context.AssetCategory</MudTd>
             <MudTd>@context.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
@@ -181,6 +189,9 @@
     private string _newHostname = string.Empty;
     private string _newAlias = string.Empty;
     private string _newAssetTag = string.Empty;
+    private string _newSerialNumber = string.Empty;
+    private string _newVariant = "Unknown";
+    private string _newCategory = "Computer";
     private TrackedPersonDto? _selectedPerson;
     private int? _selectedPersonId;
 
@@ -188,6 +199,8 @@
     private string _editHostname = string.Empty;
     private string _editAlias = string.Empty;
     private string _editAssetTag = string.Empty;
+    private string _editSerialNumber = string.Empty;
+    private string _editVariant = "Unknown";
     private TrackedPersonDto? _editSelectedPerson;
     private int? _editPersonId;
     private string _editCategory = "Computer";
@@ -240,6 +253,38 @@
         }
     }
 
+    private string ComputerFormSerialNumber
+    {
+        get => _editingComputerId is null ? _newSerialNumber : _editSerialNumber;
+        set
+        {
+            if (_editingComputerId is null)
+            {
+                _newSerialNumber = value;
+            }
+            else
+            {
+                _editSerialNumber = value;
+            }
+        }
+    }
+
+    private string ComputerFormVariant
+    {
+        get => _editingComputerId is null ? _newVariant : _editVariant;
+        set
+        {
+            if (_editingComputerId is null)
+            {
+                _newVariant = string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
+            }
+            else
+            {
+                _editVariant = string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
+            }
+        }
+    }
+
     private TrackedPersonDto? ComputerFormPerson
     {
         get => _editingComputerId is null ? _selectedPerson : _editSelectedPerson;
@@ -260,17 +305,22 @@
 
     private string ComputerFormCategory
     {
-        get => _editingComputerId is null ? "Computer" : _editCategory;
+        get => _editingComputerId is null ? _newCategory : _editCategory;
         set
         {
-            if (_editingComputerId is not null)
+            if (_editingComputerId is null)
             {
-                _editCategory = value;
+                _newCategory = string.IsNullOrWhiteSpace(value) ? "Computer" : value;
+            }
+            else
+            {
+                _editCategory = string.IsNullOrWhiteSpace(value) ? "Computer" : value;
             }
         }
     }
 
     private static readonly string[] _assignableCategories = ["Computer", "Phone", "Tablet", "Other Device"];
+    private static readonly string[] _computerVariants = ["Unknown", "Laptop", "Desktop", "Server", "Virtual Machine", "Other"];
 
     protected override async Task OnInitializedAsync()
     {
@@ -401,7 +451,14 @@
         }
 
         _isSaving = true;
-        var (success, error) = await Api.CreateComputerAsync(new CreateTrackedComputerRequest(_newHostname.Trim(), NormalizeAlias(_newAlias), _newAssetTag.Trim(), _selectedPersonId));
+        var (success, error) = await Api.CreateComputerAsync(new CreateTrackedComputerRequest(
+            _newHostname.Trim(),
+            NormalizeAlias(_newAlias),
+            _newAssetTag.Trim(),
+            _selectedPersonId,
+            NormalizeOptionalText(_newSerialNumber),
+            NormalizeVariant(_newVariant),
+            ComputerFormCategory));
         _isSaving = false;
 
         if (!success)
@@ -413,6 +470,9 @@
         _newHostname = string.Empty;
         _newAlias = string.Empty;
         _newAssetTag = string.Empty;
+        _newSerialNumber = string.Empty;
+        _newVariant = "Unknown";
+        _newCategory = "Computer";
         _selectedPerson = null;
         _selectedPersonId = null;
         await RefreshPeopleForPickerAsync();
@@ -426,6 +486,8 @@
         _editHostname = computer.Hostname;
         _editAlias = computer.Alias ?? string.Empty;
         _editAssetTag = computer.AssetTag;
+        _editSerialNumber = computer.SerialNumber ?? string.Empty;
+        _editVariant = string.IsNullOrWhiteSpace(computer.ComputerVariant) ? "Unknown" : computer.ComputerVariant!;
         _editSelectedPerson = _people.FirstOrDefault(x => x.Id == computer.TrackedPersonId);
         _editPersonId = computer.TrackedPersonId;
         _editCategory = string.IsNullOrWhiteSpace(computer.AssetCategory) ? "Computer" : computer.AssetCategory;
@@ -437,6 +499,8 @@
         _editHostname = string.Empty;
         _editAlias = string.Empty;
         _editAssetTag = string.Empty;
+        _editSerialNumber = string.Empty;
+        _editVariant = "Unknown";
         _editSelectedPerson = null;
         _editPersonId = null;
         _editCategory = "Computer";
@@ -452,7 +516,14 @@
 
         _isSaving = true;
         var computerId = _editingComputerId.Value;
-        var (success, error) = await Api.UpdateComputerAsync(computerId, new CreateTrackedComputerRequest(_editHostname.Trim(), NormalizeAlias(_editAlias), _editAssetTag.Trim(), _editPersonId));
+        var (success, error) = await Api.UpdateComputerAsync(computerId, new CreateTrackedComputerRequest(
+            _editHostname.Trim(),
+            NormalizeAlias(_editAlias),
+            _editAssetTag.Trim(),
+            _editPersonId,
+            NormalizeOptionalText(_editSerialNumber),
+            NormalizeVariant(_editVariant),
+            ComputerFormCategory));
         if (!success)
         {
             _isSaving = false;
@@ -545,6 +616,17 @@
 
     private static string? NormalizeAlias(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeOptionalText(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeVariant(string? value)
+    {
+        var normalized = NormalizeOptionalText(value);
+        return string.IsNullOrWhiteSpace(normalized) || string.Equals(normalized, "Unknown", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : normalized;
+    }
 
     private static string FormatDeviceDisplay(TrackedComputerDto device)
         => string.IsNullOrWhiteSpace(device.Alias)

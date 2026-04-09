@@ -29,6 +29,8 @@ public record TrackedComputerDto(
     string Hostname,
     string? Alias,
     string AssetTag,
+    string? SerialNumber,
+    string? ComputerVariant,
     int? TrackedPersonId,
     string? TrackedPersonName,
     DateTime CreatedAtUtc,
@@ -36,7 +38,7 @@ public record TrackedComputerDto(
     bool HiddenFromTable,
     bool IsMobileDevice,
     string AssetCategory);
-public record CreateTrackedComputerRequest(string Hostname, string? Alias, string AssetTag, int? TrackedPersonId);
+public record CreateTrackedComputerRequest(string Hostname, string? Alias, string AssetTag, int? TrackedPersonId, string? SerialNumber = null, string? ComputerVariant = null, string? AssetCategory = null);
 public record UpdateTrackedComputerFlagsRequest(bool? ExcludeFromSync, bool? HiddenFromTable, string? AssetCategory);
 
 public record PagedResultDto<T>(

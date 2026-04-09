@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
+using api.Assets;
 using api.Contracts;
 using api.Data;
 using api.Integrations;
@@ -940,6 +941,8 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
             c.Hostname.ToLower().Contains(searchTerm)
             || (c.Alias != null && c.Alias.ToLower().Contains(searchTerm))
             || c.AssetTag.ToLower().Contains(searchTerm)
+            || (c.SerialNumber != null && c.SerialNumber.ToLower().Contains(searchTerm))
+            || (c.ComputerVariant != null && c.ComputerVariant.ToLower().Contains(searchTerm))
             || (c.TrackedPerson != null && c.TrackedPerson.FullName.ToLower().Contains(searchTerm)));
     }
 
@@ -977,6 +980,10 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
         ("assignee", true) => query.OrderByDescending(c => c.TrackedPerson == null).ThenByDescending(c => c.TrackedPerson != null ? c.TrackedPerson.FullName : string.Empty).ThenByDescending(c => c.Id),
         ("assettag", false) => query.OrderBy(c => c.AssetTag).ThenBy(c => c.Id),
         ("assettag", true) => query.OrderByDescending(c => c.AssetTag).ThenByDescending(c => c.Id),
+        ("serialnumber", false) => query.OrderBy(c => c.SerialNumber ?? string.Empty).ThenBy(c => c.Id),
+        ("serialnumber", true) => query.OrderByDescending(c => c.SerialNumber ?? string.Empty).ThenByDescending(c => c.Id),
+        ("computervariant", false) => query.OrderBy(c => c.ComputerVariant ?? string.Empty).ThenBy(c => c.Id),
+        ("computervariant", true) => query.OrderByDescending(c => c.ComputerVariant ?? string.Empty).ThenByDescending(c => c.Id),
         ("createdat", false) => query.OrderBy(c => c.CreatedAtUtc).ThenBy(c => c.Id),
         ("createdat", true) => query.OrderByDescending(c => c.CreatedAtUtc).ThenByDescending(c => c.Id),
         ("hostname", true) => query.OrderByDescending(c => c.Alias ?? c.Hostname).ThenByDescending(c => c.Hostname).ThenByDescending(c => c.Id),
@@ -992,6 +999,8 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
             c.Hostname,
             c.Alias,
             c.AssetTag,
+            c.SerialNumber,
+            c.ComputerVariant,
             c.TrackedPersonId,
             c.TrackedPerson != null ? c.TrackedPerson.FullName : null,
             c.CreatedAtUtc,
@@ -1026,9 +1035,12 @@ app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request,
         Hostname = request.Hostname.Trim(),
         Alias = NormalizeAlias(request.Alias),
         AssetTag = request.AssetTag.Trim(),
+        SerialNumber = TrackedComputerMetadata.NormalizeSerialNumber(request.SerialNumber),
+        ComputerVariant = NormalizeComputerVariant(request.ComputerVariant),
         TrackedPersonId = request.TrackedPersonId,
         CreatedAtUtc = DateTime.UtcNow,
-        AssetCategory = "Computer"
+        AssetCategory = NormalizeAssetCategory(request.AssetCategory) ?? "Computer",
+        IsMobileDevice = !string.Equals(NormalizeAssetCategory(request.AssetCategory) ?? "Computer", "Computer", StringComparison.OrdinalIgnoreCase)
     };
 
     db.TrackedComputers.Add(computer);
@@ -1047,6 +1059,8 @@ app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request,
         computer.Hostname,
         computer.Alias,
         computer.AssetTag,
+        computer.SerialNumber,
+        computer.ComputerVariant,
         computer.TrackedPersonId,
         person?.FullName,
         computer.CreatedAtUtc,
@@ -1082,6 +1096,21 @@ app.MapPut("/api/catet/computers/{id:int}", async (int id, CreateTrackedComputer
     computer.Hostname = request.Hostname.Trim();
     computer.Alias = NormalizeAlias(request.Alias);
     computer.AssetTag = request.AssetTag.Trim();
+    if (request.SerialNumber is not null)
+    {
+        computer.SerialNumber = TrackedComputerMetadata.NormalizeSerialNumber(request.SerialNumber);
+    }
+
+    if (request.ComputerVariant is not null)
+    {
+        computer.ComputerVariant = NormalizeComputerVariant(request.ComputerVariant);
+    }
+
+    if (request.AssetCategory is not null)
+    {
+        computer.AssetCategory = NormalizeAssetCategory(request.AssetCategory) ?? "Computer";
+        computer.IsMobileDevice = !computer.AssetCategory.Equals("Computer", StringComparison.OrdinalIgnoreCase);
+    }
     computer.TrackedPersonId = request.TrackedPersonId;
 
     try
@@ -1098,6 +1127,8 @@ app.MapPut("/api/catet/computers/{id:int}", async (int id, CreateTrackedComputer
         computer.Hostname,
         computer.Alias,
         computer.AssetTag,
+        computer.SerialNumber,
+        computer.ComputerVariant,
         computer.TrackedPersonId,
         person?.FullName,
         computer.CreatedAtUtc,
@@ -1191,6 +1222,8 @@ app.MapGet("/api/catet/licenses/assignable-computers", async (AppDbContext db) =
             c.Hostname,
             c.Alias,
             c.AssetTag,
+            c.SerialNumber,
+            c.ComputerVariant,
             c.TrackedPersonId,
             c.TrackedPerson != null ? c.TrackedPerson.FullName : null,
             c.CreatedAtUtc,
@@ -1947,6 +1980,20 @@ void EnsureTrackedComputerSyncControlColumns(AppDbContext db)
         addAlias.ExecuteNonQuery();
     }
 
+    if (!TableColumnExists(connection, "TrackedComputers", "SerialNumber"))
+    {
+        using var addSerialNumber = connection.CreateCommand();
+        addSerialNumber.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"SerialNumber\" TEXT NULL;";
+        addSerialNumber.ExecuteNonQuery();
+    }
+
+    if (!TableColumnExists(connection, "TrackedComputers", "ComputerVariant"))
+    {
+        using var addComputerVariant = connection.CreateCommand();
+        addComputerVariant.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"ComputerVariant\" TEXT NULL;";
+        addComputerVariant.ExecuteNonQuery();
+    }
+
     using var normalizeCategory = connection.CreateCommand();
     normalizeCategory.CommandText = @"
 UPDATE ""TrackedComputers""
@@ -2235,6 +2282,9 @@ string? NormalizeAlias(string? input)
 
     return trimmed.Length > 120 ? trimmed[..120] : trimmed;
 }
+
+string? NormalizeComputerVariant(string? input)
+    => TrackedComputerMetadata.NormalizeVariant(input);
 
 List<ImportRow> ParseImportRows(Stream stream, string extension)
     => extension == ".xlsx" ? ParseXlsxRows(stream) : ParseCsvRows(stream);

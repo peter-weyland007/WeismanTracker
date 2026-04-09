@@ -65,8 +65,9 @@ public sealed class NinjaClient : INinjaClient
             }
             while (!string.IsNullOrWhiteSpace(pageToken));
 
-            _logger.LogInformation("Ninja device import fetched {Count} devices.", devices.Count);
-            return devices;
+            var enrichedDevices = await EnrichDevicesWithDetailsAsync(options, token, devices, cancellationToken);
+            _logger.LogInformation("Ninja device import fetched {Count} devices.", enrichedDevices.Count);
+            return enrichedDevices;
         }
         catch (Exception ex)
         {
@@ -206,61 +207,82 @@ public sealed class NinjaClient : INinjaClient
         return BuildUri(options.BaseUrl, path);
     }
 
-    private static (List<NinjaDeviceDto> Devices, string? NextPageToken) ParseDevices(string json)
+    private async Task<List<NinjaDeviceDto>> EnrichDevicesWithDetailsAsync(
+        NinjaOptions options,
+        string accessToken,
+        List<NinjaDeviceDto> devices,
+        CancellationToken cancellationToken)
     {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var results = new NinjaDeviceDto[devices.Count];
+        using var semaphore = new SemaphoreSlim(8, 8);
 
-        JsonElement deviceArray = default;
-        var found = false;
-
-        if (root.ValueKind == JsonValueKind.Array)
+        var tasks = devices.Select(async (device, index) =>
         {
-            deviceArray = root;
-            found = true;
-        }
-        else if (root.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var candidate in new[] { "items", "data", "results", "devices" })
+            await semaphore.WaitAsync(cancellationToken);
+            try
             {
-                if (root.TryGetProperty(candidate, out var arr) && arr.ValueKind == JsonValueKind.Array)
-                {
-                    deviceArray = arr;
-                    found = true;
-                    break;
-                }
+                var detail = await TryGetDeviceDetailAsync(options, accessToken, device.ExternalId, cancellationToken);
+                results[index] = NinjaDevicePayloadParser.Merge(device, detail);
             }
-        }
-
-        var devices = new List<NinjaDeviceDto>();
-        if (found)
-        {
-            foreach (var item in deviceArray.EnumerateArray())
+            finally
             {
-                var externalId = ReadString(item, "id", "deviceId", "guid") ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(externalId))
-                {
-                    continue;
-                }
-
-                devices.Add(new NinjaDeviceDto(
-                    ExternalId: externalId,
-                    DeviceName: ReadString(item, "displayName", "name", "deviceName"),
-                    SerialNumber: ReadString(item, "serialNumber", "serial", "serialNo"),
-                    Hostname: ReadString(item, "hostname", "dnsName", "computerName"),
-                    Os: ReadString(item, "os", "operatingSystem"),
-                    LastSeenAtUtc: ReadDateTime(item, "lastSeen", "lastSeenAt", "lastContact")));
+                semaphore.Release();
             }
-        }
+        });
 
-        string? nextPageToken = null;
-        if (root.ValueKind == JsonValueKind.Object)
-        {
-            nextPageToken = ReadString(root, "nextPageToken", "nextToken", "cursor");
-        }
-
-        return (devices, nextPageToken);
+        await Task.WhenAll(tasks);
+        return results.ToList();
     }
+
+    private async Task<NinjaDeviceDto?> TryGetDeviceDetailAsync(
+        NinjaOptions options,
+        string accessToken,
+        string externalId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(externalId))
+        {
+            return null;
+        }
+
+        var uri = BuildDeviceDetailUri(options, externalId);
+        var payload = await SendAuthorizedGetAsync(uri, accessToken, cancellationToken);
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        try
+        {
+            return NinjaDevicePayloadParser.ParseDevice(payload);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse Ninja detail payload for device {DeviceId}", externalId);
+            return null;
+        }
+    }
+
+    private static Uri BuildDeviceDetailUri(NinjaOptions options, string externalId)
+    {
+        var devicesPath = options.DevicesPath.Trim();
+        var basePath = devicesPath.Split('?', 2)[0].TrimEnd('/');
+        string detailPath;
+
+        if (basePath.EndsWith("/devices", StringComparison.OrdinalIgnoreCase))
+        {
+            detailPath = basePath[..^"devices".Length] + "device/" + Uri.EscapeDataString(externalId);
+        }
+        else
+        {
+            detailPath = $"/v2/device/{Uri.EscapeDataString(externalId)}";
+        }
+
+        return BuildUri(options.BaseUrl, detailPath);
+    }
+
+    private static (List<NinjaDeviceDto> Devices, string? NextPageToken) ParseDevices(string json)
+        => NinjaDevicePayloadParser.ParseDevices(json);
 
     private static Uri BuildUri(string baseUrl, string relativeOrAbsolute)
     {
@@ -273,25 +295,5 @@ public sealed class NinjaClient : INinjaClient
 
         var baseUri = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/", UriKind.Absolute);
         return new Uri(baseUri, relativeOrAbsolute.TrimStart('/'));
-    }
-
-    private static string? ReadString(JsonElement element, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            if (element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value))
-            {
-                if (value.ValueKind == JsonValueKind.String) return value.GetString();
-                if (value.ValueKind == JsonValueKind.Number) return value.GetRawText();
-            }
-        }
-
-        return null;
-    }
-
-    private static DateTime? ReadDateTime(JsonElement element, params string[] names)
-    {
-        var raw = ReadString(element, names);
-        return DateTime.TryParse(raw, out var parsed) ? parsed.ToUniversalTime() : null;
     }
 }

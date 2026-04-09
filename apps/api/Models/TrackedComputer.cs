@@ -15,6 +15,12 @@ public class TrackedComputer
     [MaxLength(120)]
     public string AssetTag { get; set; } = string.Empty;
 
+    [MaxLength(120)]
+    public string? SerialNumber { get; set; }
+
+    [MaxLength(40)]
+    public string? ComputerVariant { get; set; }
+
     public int? TrackedPersonId { get; set; }
 
     public TrackedPerson? TrackedPerson { get; set; }
