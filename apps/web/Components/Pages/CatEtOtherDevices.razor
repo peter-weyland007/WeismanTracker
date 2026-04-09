@@ -23,6 +23,9 @@
                 <MudTextField @bind-Value="_editHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
             </MudItem>
             <MudItem xs="12" sm="6" lg="3">
+                <MudTextField @bind-Value="_editAlias" Label="Alias (optional)" Variant="Variant.Outlined" HelperText="Friendly app name shown before the actual hostname" />
+            </MudItem>
+            <MudItem xs="12" sm="6" lg="3">
                 <MudTextField @bind-Value="_editAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
             </MudItem>
             <MudItem xs="12" sm="6" lg="3">
@@ -62,7 +65,7 @@
     <MudGrid Class="pa-2">
         <MudItem xs="12" md="9">
             <MudTextField @bind-Value="_searchText"
-                          Placeholder="Search hostname, asset tag, or assigned user"
+                          Placeholder="Search hostname, alias, asset tag, or assigned user"
                           Variant="Variant.Outlined"
                           Adornment="Adornment.Start"
                           AdornmentIcon="@Icons.Material.Filled.Search"
@@ -101,7 +104,7 @@
             <MudTh>Actions</MudTh>
         </HeaderContent>
         <RowTemplate>
-            <MudTd>@context.Hostname</MudTd>
+            <MudTd>@FormatDeviceDisplay(context)</MudTd>
             <MudTd>@context.AssetTag</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.TrackedPersonName) ? "Unassigned" : context.TrackedPersonName)</MudTd>
             <MudTd>@context.AssetCategory</MudTd>
@@ -135,6 +138,7 @@
 
     private int? _editingDeviceId;
     private string _editHostname = string.Empty;
+    private string _editAlias = string.Empty;
     private string _editAssetTag = string.Empty;
     private TrackedPersonDto? _editSelectedPerson;
     private int? _editPersonId;
@@ -230,6 +234,7 @@
     {
         _editingDeviceId = device.Id;
         _editHostname = device.Hostname;
+        _editAlias = device.Alias ?? string.Empty;
         _editAssetTag = device.AssetTag;
         _editSelectedPerson = _people.FirstOrDefault(x => x.Id == device.TrackedPersonId);
         _editPersonId = device.TrackedPersonId;
@@ -240,6 +245,7 @@
     {
         _editingDeviceId = null;
         _editHostname = string.Empty;
+        _editAlias = string.Empty;
         _editAssetTag = string.Empty;
         _editSelectedPerson = null;
         _editPersonId = null;
@@ -256,7 +262,7 @@
 
         _isSaving = true;
         var id = _editingDeviceId.Value;
-        var (success, error) = await Api.UpdateComputerAsync(id, new CreateTrackedComputerRequest(_editHostname.Trim(), _editAssetTag.Trim(), _editPersonId));
+        var (success, error) = await Api.UpdateComputerAsync(id, new CreateTrackedComputerRequest(_editHostname.Trim(), NormalizeAlias(_editAlias), _editAssetTag.Trim(), _editPersonId));
         if (!success)
         {
             _isSaving = false;
@@ -349,4 +355,12 @@
 
         Snackbar.Add("Device soft-deleted.", Severity.Success);
     }
+
+    private static string? NormalizeAlias(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string FormatDeviceDisplay(TrackedComputerDto device)
+        => string.IsNullOrWhiteSpace(device.Alias)
+            ? device.Hostname
+            : $"{device.Alias} ({device.Hostname})";
 }

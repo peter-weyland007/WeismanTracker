@@ -59,7 +59,7 @@
                 <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
                 @foreach (var computer in _computers)
                 {
-                    <MudSelectItem Value="@((int?)computer.Id)">@computer.Hostname (@computer.AssetTag) - @computer.TrackedPersonName</MudSelectItem>
+                    <MudSelectItem Value="@((int?)computer.Id)">@FormatAssignableComputer(computer)</MudSelectItem>
                 }
             </MudSelect>
         </MudItem>
@@ -653,7 +653,21 @@
     };
 
     private static string FormatComputer(CatEtLicenseDto row)
-        => string.IsNullOrWhiteSpace(row.Hostname) || string.IsNullOrWhiteSpace(row.AssetTag) ? "Unassigned" : $"{row.Hostname} ({row.AssetTag})";
+        => string.IsNullOrWhiteSpace(row.Hostname) || string.IsNullOrWhiteSpace(row.AssetTag)
+            ? "Unassigned"
+            : string.IsNullOrWhiteSpace(row.ComputerAlias)
+                ? $"{row.Hostname} ({row.AssetTag})"
+                : $"{row.ComputerAlias} ({row.Hostname}) ({row.AssetTag})";
+
+    private static string FormatAssignableComputer(TrackedComputerDto computer)
+    {
+        var deviceName = string.IsNullOrWhiteSpace(computer.Alias)
+            ? computer.Hostname
+            : $"{computer.Alias} ({computer.Hostname})";
+        return string.IsNullOrWhiteSpace(computer.TrackedPersonName)
+            ? $"{deviceName} ({computer.AssetTag})"
+            : $"{deviceName} ({computer.AssetTag}) - {computer.TrackedPersonName}";
+    }
 
     private static string Mask(string value)
         => string.IsNullOrWhiteSpace(value) || value.Length <= 8 ? value : $"{value[..4]}...{value[^4..]}";

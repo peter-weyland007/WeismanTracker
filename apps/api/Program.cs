@@ -938,6 +938,7 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
     {
         query = query.Where(c =>
             c.Hostname.ToLower().Contains(searchTerm)
+            || (c.Alias != null && c.Alias.ToLower().Contains(searchTerm))
             || c.AssetTag.ToLower().Contains(searchTerm)
             || (c.TrackedPerson != null && c.TrackedPerson.FullName.ToLower().Contains(searchTerm)));
     }
@@ -978,8 +979,8 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
         ("assettag", true) => query.OrderByDescending(c => c.AssetTag).ThenByDescending(c => c.Id),
         ("createdat", false) => query.OrderBy(c => c.CreatedAtUtc).ThenBy(c => c.Id),
         ("createdat", true) => query.OrderByDescending(c => c.CreatedAtUtc).ThenByDescending(c => c.Id),
-        ("hostname", true) => query.OrderByDescending(c => c.Hostname).ThenByDescending(c => c.Id),
-        _ => query.OrderBy(c => c.Hostname).ThenBy(c => c.Id)
+        ("hostname", true) => query.OrderByDescending(c => c.Alias ?? c.Hostname).ThenByDescending(c => c.Hostname).ThenByDescending(c => c.Id),
+        _ => query.OrderBy(c => c.Alias ?? c.Hostname).ThenBy(c => c.Hostname).ThenBy(c => c.Id)
     };
 
     var totalCount = await query.CountAsync();
@@ -989,6 +990,7 @@ app.MapGet("/api/catet/computers", async (AppDbContext db, int page = 1, int pag
         .Select(c => new TrackedComputerDto(
             c.Id,
             c.Hostname,
+            c.Alias,
             c.AssetTag,
             c.TrackedPersonId,
             c.TrackedPerson != null ? c.TrackedPerson.FullName : null,
@@ -1022,6 +1024,7 @@ app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request,
     var computer = new TrackedComputer
     {
         Hostname = request.Hostname.Trim(),
+        Alias = NormalizeAlias(request.Alias),
         AssetTag = request.AssetTag.Trim(),
         TrackedPersonId = request.TrackedPersonId,
         CreatedAtUtc = DateTime.UtcNow,
@@ -1042,6 +1045,7 @@ app.MapPost("/api/catet/computers", async (CreateTrackedComputerRequest request,
     return Results.Ok(new TrackedComputerDto(
         computer.Id,
         computer.Hostname,
+        computer.Alias,
         computer.AssetTag,
         computer.TrackedPersonId,
         person?.FullName,
@@ -1076,6 +1080,7 @@ app.MapPut("/api/catet/computers/{id:int}", async (int id, CreateTrackedComputer
     }
 
     computer.Hostname = request.Hostname.Trim();
+    computer.Alias = NormalizeAlias(request.Alias);
     computer.AssetTag = request.AssetTag.Trim();
     computer.TrackedPersonId = request.TrackedPersonId;
 
@@ -1091,6 +1096,7 @@ app.MapPut("/api/catet/computers/{id:int}", async (int id, CreateTrackedComputer
     return Results.Ok(new TrackedComputerDto(
         computer.Id,
         computer.Hostname,
+        computer.Alias,
         computer.AssetTag,
         computer.TrackedPersonId,
         person?.FullName,
@@ -1164,6 +1170,7 @@ app.MapGet("/api/catet/licenses", async (AppDbContext db) =>
             l.LastResetAtUtc,
             l.TrackedComputerId,
             l.TrackedComputer != null ? l.TrackedComputer.Hostname : null,
+            l.TrackedComputer != null ? l.TrackedComputer.Alias : null,
             l.TrackedComputer != null ? l.TrackedComputer.AssetTag : null,
             l.TrackedComputer != null ? l.TrackedComputer.TrackedPersonId : null,
             l.TrackedComputer != null && l.TrackedComputer.TrackedPerson != null ? l.TrackedComputer.TrackedPerson.FullName : null,
@@ -1182,6 +1189,7 @@ app.MapGet("/api/catet/licenses/assignable-computers", async (AppDbContext db) =
         .Select(c => new TrackedComputerDto(
             c.Id,
             c.Hostname,
+            c.Alias,
             c.AssetTag,
             c.TrackedPersonId,
             c.TrackedPerson != null ? c.TrackedPerson.FullName : null,
@@ -1227,6 +1235,7 @@ app.MapGet("/api/catet/activity", async (AppDbContext db) =>
             e.Notes,
             e.OccurredAtUtc,
             e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null ? e.CatEtLicense.TrackedComputer.Hostname : null,
+            e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null ? e.CatEtLicense.TrackedComputer.Alias : null,
             e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null ? e.CatEtLicense.TrackedComputer.AssetTag : null,
             e.CatEtLicense != null && e.CatEtLicense.TrackedComputer != null && e.CatEtLicense.TrackedComputer.TrackedPerson != null
                 ? e.CatEtLicense.TrackedComputer.TrackedPerson.FullName
@@ -1300,6 +1309,7 @@ app.MapPost("/api/catet/licenses", async (CreateCatEtLicenseRequest request, App
         license.LastResetAtUtc,
         license.TrackedComputerId,
         computer?.Hostname,
+        computer?.Alias,
         computer?.AssetTag,
         computer?.TrackedPersonId,
         computer?.TrackedPerson?.FullName,
@@ -1510,6 +1520,7 @@ app.MapPut("/api/catet/licenses/{id:int}", async (int id, UpdateCatEtLicenseRequ
         license.LastResetAtUtc,
         license.TrackedComputerId,
         computer?.Hostname,
+        computer?.Alias,
         computer?.AssetTag,
         computer?.TrackedPersonId,
         computer?.TrackedPerson?.FullName,
@@ -1929,6 +1940,13 @@ void EnsureTrackedComputerSyncControlColumns(AppDbContext db)
         addCategory.ExecuteNonQuery();
     }
 
+    if (!TableColumnExists(connection, "TrackedComputers", "Alias"))
+    {
+        using var addAlias = connection.CreateCommand();
+        addAlias.CommandText = "ALTER TABLE \"TrackedComputers\" ADD COLUMN \"Alias\" TEXT NULL;";
+        addAlias.ExecuteNonQuery();
+    }
+
     using var normalizeCategory = connection.CreateCommand();
     normalizeCategory.CommandText = @"
 UPDATE ""TrackedComputers""
@@ -2205,6 +2223,17 @@ string NormalizeActivationId(string input)
     }
 
     return string.Join('-', groups);
+}
+
+string? NormalizeAlias(string? input)
+{
+    var trimmed = input?.Trim();
+    if (string.IsNullOrWhiteSpace(trimmed))
+    {
+        return null;
+    }
+
+    return trimmed.Length > 120 ? trimmed[..120] : trimmed;
 }
 
 List<ImportRow> ParseImportRows(Stream stream, string extension)

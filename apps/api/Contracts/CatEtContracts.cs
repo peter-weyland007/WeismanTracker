@@ -23,6 +23,7 @@ public record CreateCellPhoneAllowanceRequest(
 public record TrackedComputerDto(
     int Id,
     string Hostname,
+    string? Alias,
     string AssetTag,
     int? TrackedPersonId,
     string? TrackedPersonName,
@@ -31,7 +32,7 @@ public record TrackedComputerDto(
     bool HiddenFromTable,
     bool IsMobileDevice,
     string AssetCategory);
-public record CreateTrackedComputerRequest(string Hostname, string AssetTag, int? TrackedPersonId);
+public record CreateTrackedComputerRequest(string Hostname, string? Alias, string AssetTag, int? TrackedPersonId);
 public record UpdateTrackedComputerFlagsRequest(bool? ExcludeFromSync, bool? HiddenFromTable, string? AssetCategory);
 
 public record PagedResultDto<T>(
@@ -49,6 +50,7 @@ public record CatEtLicenseDto(
     DateTime? LastResetAtUtc,
     int? TrackedComputerId,
     string? Hostname,
+    string? ComputerAlias,
     string? AssetTag,
     int? TrackedPersonId,
     string? TrackedPersonName,
@@ -78,6 +80,7 @@ public record CatEtActivationActivityRowDto(
     string? Notes,
     DateTime OccurredAtUtc,
     string? Hostname,
+    string? ComputerAlias,
     string? AssetTag,
     string? TrackedPersonName);
 

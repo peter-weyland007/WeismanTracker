@@ -96,6 +96,7 @@
         var needle = _search.Trim();
         return Contains(row.SerialNumber, needle)
                || Contains(row.EventType, needle)
+               || Contains(row.ComputerAlias, needle)
                || Contains(row.Hostname, needle)
                || Contains(row.AssetTag, needle)
                || Contains(row.TrackedPersonName, needle)
@@ -110,8 +111,10 @@
         => string.IsNullOrWhiteSpace(row.Hostname)
             ? "Unassigned"
             : string.IsNullOrWhiteSpace(row.AssetTag)
-                ? row.Hostname!
-                : $"{row.Hostname} ({row.AssetTag})";
+                ? string.IsNullOrWhiteSpace(row.ComputerAlias) ? row.Hostname! : $"{row.ComputerAlias} ({row.Hostname})"
+                : string.IsNullOrWhiteSpace(row.ComputerAlias)
+                    ? $"{row.Hostname} ({row.AssetTag})"
+                    : $"{row.ComputerAlias} ({row.Hostname}) ({row.AssetTag})";
 
     private void SetSort(SortColumn column)
     {
@@ -135,7 +138,7 @@
             SortColumn.OccurredAt => source.OrderBy(x => x.OccurredAtUtc),
             SortColumn.SerialNumber => source.OrderBy(x => x.SerialNumber),
             SortColumn.EventType => source.OrderBy(x => x.EventType),
-            SortColumn.Computer => source.OrderBy(x => x.Hostname).ThenBy(x => x.AssetTag),
+            SortColumn.Computer => source.OrderBy(x => x.ComputerAlias ?? x.Hostname).ThenBy(x => x.Hostname).ThenBy(x => x.AssetTag),
             SortColumn.User => source.OrderBy(x => x.TrackedPersonName),
             SortColumn.Notes => source.OrderBy(x => x.Notes),
             _ => source.OrderBy(x => x.OccurredAtUtc)

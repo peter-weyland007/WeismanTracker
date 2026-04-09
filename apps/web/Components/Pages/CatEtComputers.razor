@@ -20,13 +20,16 @@
         }
     </div>
     <MudGrid Spacing="3" Class="people-form-grid">
-        <MudItem xs="12" sm="6" lg="3">
+        <MudItem xs="12" sm="6" lg="2">
             <MudTextField @bind-Value="ComputerFormHostname" Label="Hostname" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" sm="6" lg="3">
+        <MudItem xs="12" sm="6" lg="2">
+            <MudTextField @bind-Value="ComputerFormAlias" Label="Alias (optional)" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
             <MudTextField @bind-Value="ComputerFormAssetTag" Label="Asset Tag" Variant="Variant.Outlined" Required="true" />
         </MudItem>
-        <MudItem xs="12" sm="6" lg="3">
+        <MudItem xs="12" sm="6" lg="4">
             <MudAutocomplete T="TrackedPersonDto"
                              Value="ComputerFormPerson"
                              ValueChanged="OnComputerPersonChanged"
@@ -41,7 +44,7 @@
                              MaxItems="50"
                              Placeholder="Type to filter users" />
         </MudItem>
-        <MudItem xs="12" sm="6" lg="3">
+        <MudItem xs="12" sm="6" lg="2">
             @if (_editingComputerId is not null)
             {
                 <MudSelect T="string" @bind-Value="ComputerFormCategory" Label="Category" Variant="Variant.Outlined">
@@ -76,7 +79,7 @@
     <MudGrid Class="pa-2">
         <MudItem xs="12" md="6">
             <MudTextField @bind-Value="_searchText"
-                          Placeholder="Search hostname, asset tag, or assigned user"
+                          Placeholder="Search hostname, alias, asset tag, or assigned user"
                           Variant="Variant.Outlined"
                           Adornment="Adornment.Start"
                           AdornmentIcon="@Icons.Material.Filled.Search"
@@ -128,7 +131,7 @@
         </HeaderContent>
         <RowTemplate>
             <MudTd>
-                @context.Hostname
+                @FormatDeviceDisplay(context)
                 @if (context.IsMobileDevice)
                 {
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info" Class="ms-1">Mobile</MudChip>
@@ -176,12 +179,14 @@
     private int _rowsPerPage = 25;
 
     private string _newHostname = string.Empty;
+    private string _newAlias = string.Empty;
     private string _newAssetTag = string.Empty;
     private TrackedPersonDto? _selectedPerson;
     private int? _selectedPersonId;
 
     private int? _editingComputerId;
     private string _editHostname = string.Empty;
+    private string _editAlias = string.Empty;
     private string _editAssetTag = string.Empty;
     private TrackedPersonDto? _editSelectedPerson;
     private int? _editPersonId;
@@ -215,6 +220,22 @@
             else
             {
                 _editAssetTag = value;
+            }
+        }
+    }
+
+    private string ComputerFormAlias
+    {
+        get => _editingComputerId is null ? _newAlias : _editAlias;
+        set
+        {
+            if (_editingComputerId is null)
+            {
+                _newAlias = value;
+            }
+            else
+            {
+                _editAlias = value;
             }
         }
     }
@@ -380,7 +401,7 @@
         }
 
         _isSaving = true;
-        var (success, error) = await Api.CreateComputerAsync(new CreateTrackedComputerRequest(_newHostname.Trim(), _newAssetTag.Trim(), _selectedPersonId));
+        var (success, error) = await Api.CreateComputerAsync(new CreateTrackedComputerRequest(_newHostname.Trim(), NormalizeAlias(_newAlias), _newAssetTag.Trim(), _selectedPersonId));
         _isSaving = false;
 
         if (!success)
@@ -390,6 +411,7 @@
         }
 
         _newHostname = string.Empty;
+        _newAlias = string.Empty;
         _newAssetTag = string.Empty;
         _selectedPerson = null;
         _selectedPersonId = null;
@@ -402,6 +424,7 @@
     {
         _editingComputerId = computer.Id;
         _editHostname = computer.Hostname;
+        _editAlias = computer.Alias ?? string.Empty;
         _editAssetTag = computer.AssetTag;
         _editSelectedPerson = _people.FirstOrDefault(x => x.Id == computer.TrackedPersonId);
         _editPersonId = computer.TrackedPersonId;
@@ -412,6 +435,7 @@
     {
         _editingComputerId = null;
         _editHostname = string.Empty;
+        _editAlias = string.Empty;
         _editAssetTag = string.Empty;
         _editSelectedPerson = null;
         _editPersonId = null;
@@ -428,7 +452,7 @@
 
         _isSaving = true;
         var computerId = _editingComputerId.Value;
-        var (success, error) = await Api.UpdateComputerAsync(computerId, new CreateTrackedComputerRequest(_editHostname.Trim(), _editAssetTag.Trim(), _editPersonId));
+        var (success, error) = await Api.UpdateComputerAsync(computerId, new CreateTrackedComputerRequest(_editHostname.Trim(), NormalizeAlias(_editAlias), _editAssetTag.Trim(), _editPersonId));
         if (!success)
         {
             _isSaving = false;
@@ -518,5 +542,13 @@
         await ReloadComputersTableAsync();
         Snackbar.Add("Computer soft-deleted.", Severity.Success);
     }
+
+    private static string? NormalizeAlias(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string FormatDeviceDisplay(TrackedComputerDto device)
+        => string.IsNullOrWhiteSpace(device.Alias)
+            ? device.Hostname
+            : $"{device.Alias} ({device.Hostname})";
 }
 

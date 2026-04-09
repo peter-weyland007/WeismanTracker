@@ -711,9 +711,13 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
                     existingByAsset.DeletedAtUtc = null;
                 }
 
-                if (string.IsNullOrWhiteSpace(existingByAsset.Hostname) && !string.IsNullOrWhiteSpace(preferredHostname))
+                if (!string.IsNullOrWhiteSpace(preferredHostname))
                 {
-                    existingByAsset.Hostname = CleanHostname(preferredHostname);
+                    var cleanedHostname = CleanHostname(preferredHostname);
+                    if (!string.Equals(existingByAsset.Hostname, cleanedHostname, StringComparison.Ordinal))
+                    {
+                        existingByAsset.Hostname = cleanedHostname;
+                    }
                 }
 
                 if (isMobileHint)

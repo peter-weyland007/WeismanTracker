@@ -10,6 +10,9 @@ public class TrackedComputer
     public string Hostname { get; set; } = string.Empty;
 
     [MaxLength(120)]
+    public string? Alias { get; set; }
+
+    [MaxLength(120)]
     public string AssetTag { get; set; } = string.Empty;
 
     public int? TrackedPersonId { get; set; }
