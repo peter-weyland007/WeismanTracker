@@ -1,7 +1,7 @@
 namespace api.Contracts;
 
-public record TrackedPersonDto(int Id, string FullName, string? Email, string? EmployeeNumber, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount, DateTime CreatedAtUtc);
-public record CreateTrackedPersonRequest(string FullName, string? Email, string? EmployeeNumber, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount);
+public record TrackedPersonDto(int Id, string FullName, string? Email, string? EmployeeNumber, int? PayrollGroup, string? PayrollGroupLabel, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount, DateTime CreatedAtUtc);
+public record CreateTrackedPersonRequest(string FullName, string? Email, string? EmployeeNumber, int? PayrollGroup, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount);
 
 public record CellPhoneAllowanceDto(
     int Id,
@@ -9,6 +9,8 @@ public record CellPhoneAllowanceDto(
     string TrackedPersonName,
     string? TrackedPersonEmail,
     string? TrackedPersonEmployeeNumber,
+    int? TrackedPersonPayrollGroup,
+    string? TrackedPersonPayrollGroupLabel,
     string MobilePhoneNumber,
     bool AllowanceGranted,
     DateTime? ApprovedAtUtc,

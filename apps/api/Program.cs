@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using api.Assets;
+using api.Exports;
 using api.Contracts;
 using api.Data;
 using api.Integrations;
@@ -785,6 +786,8 @@ app.MapGet("/api/allowances/cell-phone", async (AppDbContext db, int page = 1, i
             x.TrackedPerson!.FullName,
             x.TrackedPerson.Email,
             x.TrackedPerson.EmployeeNumber,
+            x.TrackedPerson.PayrollGroup,
+            PayrollGroupOption.GetDisplayName(x.TrackedPerson.PayrollGroup),
             x.MobilePhoneNumber,
             x.AllowanceGranted,
             x.ApprovedAtUtc,
@@ -792,6 +795,49 @@ app.MapGet("/api/allowances/cell-phone", async (AppDbContext db, int page = 1, i
         .ToListAsync();
 
     return Results.Ok(new PagedResultDto<CellPhoneAllowanceDto>(items, totalCount, safePage, safePageSize));
+});
+
+app.MapGet("/api/allowances/cell-phone/export", async (AppDbContext db, string? search = null, string? filter = null) =>
+{
+    var searchTerm = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
+    var normalizedFilter = string.IsNullOrWhiteSpace(filter) ? "all" : filter.Trim().ToLowerInvariant();
+
+    var query = db.CellPhoneAllowances
+        .AsNoTracking()
+        .Include(x => x.TrackedPerson)
+        .Where(x => x.DeletedAtUtc == null && x.TrackedPerson != null && x.TrackedPerson.DeletedAtUtc == null)
+        .AsQueryable();
+
+    if (!string.IsNullOrWhiteSpace(searchTerm))
+    {
+        query = query.Where(x =>
+            x.MobilePhoneNumber.ToLower().Contains(searchTerm)
+            || x.TrackedPerson!.FullName.ToLower().Contains(searchTerm)
+            || (x.TrackedPerson.Email != null && x.TrackedPerson.Email.ToLower().Contains(searchTerm))
+            || (x.TrackedPerson.EmployeeNumber != null && x.TrackedPerson.EmployeeNumber.ToLower().Contains(searchTerm)));
+    }
+
+    query = normalizedFilter switch
+    {
+        "granted" => query.Where(x => x.AllowanceGranted),
+        "notgranted" => query.Where(x => !x.AllowanceGranted),
+        _ => query
+    };
+
+    var rows = await query
+        .OrderBy(x => x.TrackedPerson!.FullName)
+        .ThenBy(x => x.Id)
+        .Select(x => new CellPhoneAllowanceExportRow(
+            x.TrackedPerson!.EmployeeNumber,
+            x.TrackedPerson.PayrollGroup,
+            x.ApprovedAtUtc,
+            x.TrackedPerson.FullName,
+            x.MobilePhoneNumber))
+        .ToListAsync();
+
+    var content = CellPhoneAllowanceExcelExporter.BuildWorkbook(rows);
+    var fileName = $"cell-phone-allowance-{DateTime.UtcNow:yyyyMMddHHmmss}.xlsx";
+    return Results.File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
 });
 
 app.MapPost("/api/allowances/cell-phone", async (CreateCellPhoneAllowanceRequest request, AppDbContext db) =>
@@ -825,6 +871,8 @@ app.MapPost("/api/allowances/cell-phone", async (CreateCellPhoneAllowanceRequest
         person.FullName,
         person.Email,
         person.EmployeeNumber,
+        person.PayrollGroup,
+        PayrollGroupOption.GetDisplayName(person.PayrollGroup),
         allowance.MobilePhoneNumber,
         allowance.AllowanceGranted,
         allowance.ApprovedAtUtc,
@@ -863,6 +911,8 @@ app.MapPut("/api/allowances/cell-phone/{id:int}", async (int id, CreateCellPhone
         person.FullName,
         person.Email,
         person.EmployeeNumber,
+        person.PayrollGroup,
+        PayrollGroupOption.GetDisplayName(person.PayrollGroup),
         allowance.MobilePhoneNumber,
         allowance.AllowanceGranted,
         allowance.ApprovedAtUtc,
@@ -936,7 +986,7 @@ app.MapGet("/api/catet/people", async (AppDbContext db, int page = 1, int pageSi
     var people = await query
         .Skip((safePage - 1) * safePageSize)
         .Take(safePageSize)
-        .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.EmployeeNumber, p.MobilePhone, p.BusinessPhone, p.IsServiceAccount, p.CreatedAtUtc))
+        .Select(p => new TrackedPersonDto(p.Id, p.FullName, p.Email, p.EmployeeNumber, p.PayrollGroup, PayrollGroupOption.GetDisplayName(p.PayrollGroup), p.MobilePhone, p.BusinessPhone, p.IsServiceAccount, p.CreatedAtUtc))
         .ToListAsync();
 
     return Results.Ok(new PagedResultDto<TrackedPersonDto>(people, totalCount, safePage, safePageSize));
@@ -949,11 +999,17 @@ app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppD
         return Results.BadRequest(new { message = "Full name is required." });
     }
 
+    if (request.PayrollGroup is not null && !PayrollGroupOption.IsValid(request.PayrollGroup))
+    {
+        return Results.BadRequest(new { message = "Payroll Group must be 2 (Hourly) or 3 (Salary)." });
+    }
+
     var person = new TrackedPerson
     {
         FullName = request.FullName.Trim(),
         Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim(),
         EmployeeNumber = string.IsNullOrWhiteSpace(request.EmployeeNumber) ? null : request.EmployeeNumber.Trim(),
+        PayrollGroup = request.PayrollGroup,
         MobilePhone = string.IsNullOrWhiteSpace(request.MobilePhone) ? null : request.MobilePhone.Trim(),
         BusinessPhone = string.IsNullOrWhiteSpace(request.BusinessPhone) ? null : request.BusinessPhone.Trim(),
         IsServiceAccount = request.IsServiceAccount,
@@ -971,7 +1027,7 @@ app.MapPost("/api/catet/people", async (CreateTrackedPersonRequest request, AppD
         return Results.Conflict(new { message = "Email already exists." });
     }
 
-    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.EmployeeNumber, person.MobilePhone, person.BusinessPhone, person.IsServiceAccount, person.CreatedAtUtc));
+    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.EmployeeNumber, person.PayrollGroup, PayrollGroupOption.GetDisplayName(person.PayrollGroup), person.MobilePhone, person.BusinessPhone, person.IsServiceAccount, person.CreatedAtUtc));
 });
 
 app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonRequest request, AppDbContext db) =>
@@ -987,9 +1043,15 @@ app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonReque
         return Results.BadRequest(new { message = "Full name is required." });
     }
 
+    if (request.PayrollGroup is not null && !PayrollGroupOption.IsValid(request.PayrollGroup))
+    {
+        return Results.BadRequest(new { message = "Payroll Group must be 2 (Hourly) or 3 (Salary)." });
+    }
+
     person.FullName = request.FullName.Trim();
     person.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim();
     person.EmployeeNumber = string.IsNullOrWhiteSpace(request.EmployeeNumber) ? null : request.EmployeeNumber.Trim();
+    person.PayrollGroup = request.PayrollGroup;
     person.MobilePhone = string.IsNullOrWhiteSpace(request.MobilePhone) ? null : request.MobilePhone.Trim();
     person.BusinessPhone = string.IsNullOrWhiteSpace(request.BusinessPhone) ? null : request.BusinessPhone.Trim();
     person.IsServiceAccount = request.IsServiceAccount;
@@ -1003,7 +1065,7 @@ app.MapPut("/api/catet/people/{id:int}", async (int id, CreateTrackedPersonReque
         return Results.Conflict(new { message = "Email already exists." });
     }
 
-    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.EmployeeNumber, person.MobilePhone, person.BusinessPhone, person.IsServiceAccount, person.CreatedAtUtc));
+    return Results.Ok(new TrackedPersonDto(person.Id, person.FullName, person.Email, person.EmployeeNumber, person.PayrollGroup, PayrollGroupOption.GetDisplayName(person.PayrollGroup), person.MobilePhone, person.BusinessPhone, person.IsServiceAccount, person.CreatedAtUtc));
 });
 
 app.MapDelete("/api/catet/people/{id:int}", async (int id, AppDbContext db) =>
@@ -2014,6 +2076,13 @@ void EnsureTrackedPersonPhoneColumns(AppDbContext db)
         using var addEmployeeNumber = connection.CreateCommand();
         addEmployeeNumber.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"EmployeeNumber\" TEXT NULL;";
         addEmployeeNumber.ExecuteNonQuery();
+    }
+
+    if (!existingColumns.Contains("PayrollGroup"))
+    {
+        using var addPayrollGroup = connection.CreateCommand();
+        addPayrollGroup.CommandText = "ALTER TABLE \"TrackedPeople\" ADD COLUMN \"PayrollGroup\" INTEGER NULL;";
+        addPayrollGroup.ExecuteNonQuery();
     }
 
     if (!existingColumns.Contains("IsServiceAccount"))

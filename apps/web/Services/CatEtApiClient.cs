@@ -258,6 +258,38 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
             ?? new PagedResultDto<CellPhoneAllowanceDto>([], 0, Math.Max(1, page), Math.Clamp(pageSize, 1, 500));
     }
 
+    public async Task<(byte[] Content, string FileName)> ExportCellPhoneAllowancesAsync(string? search = null, string? filter = null)
+    {
+        var url = "/api/allowances/cell-phone/export";
+        var query = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query.Add($"search={Uri.EscapeDataString(search.Trim())}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            query.Add($"filter={Uri.EscapeDataString(filter.Trim())}");
+        }
+
+        if (query.Count > 0)
+        {
+            url += $"?{string.Join("&", query)}";
+        }
+
+        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, url);
+        using var response = await _http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        var content = await response.Content.ReadAsByteArrayAsync();
+        var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+            ?? response.Content.Headers.ContentDisposition?.FileName
+            ?? $"cell-phone-allowance-{DateTime.UtcNow:yyyyMMddHHmmss}.xlsx";
+
+        return (content, fileName.Trim('"'));
+    }
+
     public async Task<(bool Success, string? Error)> CreateCellPhoneAllowanceAsync(CreateCellPhoneAllowanceRequest request)
     {
         await EnsureAuthorizationHeaderAsync();

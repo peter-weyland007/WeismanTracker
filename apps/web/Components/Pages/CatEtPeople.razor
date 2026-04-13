@@ -30,6 +30,13 @@
             <MudTextField @bind-Value="PersonFormEmployeeNumber" Label="Employee number" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="int?" @bind-Value="PersonFormPayrollGroup" Label="Payroll group" Variant="Variant.Outlined" Clearable="true">
+                <MudSelectItem T="int?" Value="@((int?)null)">Not set</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)2)">Hourly</MudSelectItem>
+                <MudSelectItem T="int?" Value="@((int?)3)">Salary</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
             <MudTextField @bind-Value="PersonFormMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="2">
@@ -94,6 +101,7 @@
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="fullName">Name</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="email">Email</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="employeeNumber">Employee #</MudTableSortLabel></MudTh>
+            <MudTh>Payroll Group</MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="serviceAccount">Type</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="mobilePhone">Mobile</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="businessPhone">Business</MudTableSortLabel></MudTh>
@@ -104,6 +112,7 @@
             <MudTd>@context.FullName</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.Email) ? "-" : context.Email)</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.EmployeeNumber) ? "-" : context.EmployeeNumber)</MudTd>
+            <MudTd>@(string.IsNullOrWhiteSpace(context.PayrollGroupLabel) ? "-" : context.PayrollGroupLabel)</MudTd>
             <MudTd>
                 @if (context.IsServiceAccount)
                 {
@@ -145,6 +154,7 @@
     private string _newFullName = string.Empty;
     private string _newEmail = string.Empty;
     private string _newEmployeeNumber = string.Empty;
+    private int? _newPayrollGroup;
     private string _newMobilePhone = string.Empty;
     private string _newBusinessPhone = string.Empty;
     private bool _newIsServiceAccount;
@@ -153,6 +163,7 @@
     private string _editFullName = string.Empty;
     private string _editEmail = string.Empty;
     private string _editEmployeeNumber = string.Empty;
+    private int? _editPayrollGroup;
     private string _editMobilePhone = string.Empty;
     private string _editBusinessPhone = string.Empty;
     private bool _editIsServiceAccount;
@@ -201,6 +212,22 @@
             else
             {
                 _editEmployeeNumber = value;
+            }
+        }
+    }
+
+    private int? PersonFormPayrollGroup
+    {
+        get => _editingPersonId is null ? _newPayrollGroup : _editPayrollGroup;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newPayrollGroup = value;
+            }
+            else
+            {
+                _editPayrollGroup = value;
             }
         }
     }
@@ -322,6 +349,7 @@
             _newFullName.Trim(),
             string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail.Trim(),
             string.IsNullOrWhiteSpace(_newEmployeeNumber) ? null : _newEmployeeNumber.Trim(),
+            _newPayrollGroup,
             string.IsNullOrWhiteSpace(_newMobilePhone) ? null : _newMobilePhone.Trim(),
             string.IsNullOrWhiteSpace(_newBusinessPhone) ? null : _newBusinessPhone.Trim(),
             _newIsServiceAccount));
@@ -336,6 +364,7 @@
         _newFullName = string.Empty;
         _newEmail = string.Empty;
         _newEmployeeNumber = string.Empty;
+        _newPayrollGroup = null;
         _newMobilePhone = string.Empty;
         _newBusinessPhone = string.Empty;
         _newIsServiceAccount = false;
@@ -349,6 +378,7 @@
         _editFullName = person.FullName;
         _editEmail = person.Email ?? string.Empty;
         _editEmployeeNumber = person.EmployeeNumber ?? string.Empty;
+        _editPayrollGroup = person.PayrollGroup;
         _editMobilePhone = person.MobilePhone ?? string.Empty;
         _editBusinessPhone = person.BusinessPhone ?? string.Empty;
         _editIsServiceAccount = person.IsServiceAccount;
@@ -360,6 +390,7 @@
         _editFullName = string.Empty;
         _editEmail = string.Empty;
         _editEmployeeNumber = string.Empty;
+        _editPayrollGroup = null;
         _editMobilePhone = string.Empty;
         _editBusinessPhone = string.Empty;
         _editIsServiceAccount = false;
@@ -378,6 +409,7 @@
             _editFullName.Trim(),
             string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim(),
             string.IsNullOrWhiteSpace(_editEmployeeNumber) ? null : _editEmployeeNumber.Trim(),
+            _editPayrollGroup,
             string.IsNullOrWhiteSpace(_editMobilePhone) ? null : _editMobilePhone.Trim(),
             string.IsNullOrWhiteSpace(_editBusinessPhone) ? null : _editBusinessPhone.Trim(),
             _editIsServiceAccount));

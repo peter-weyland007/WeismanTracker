@@ -15,6 +15,8 @@ public class TrackedPerson
     [MaxLength(50)]
     public string? EmployeeNumber { get; set; }
 
+    public int? PayrollGroup { get; set; }
+
     [MaxLength(50)]
     public string? MobilePhone { get; set; }
 
