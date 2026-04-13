@@ -89,6 +89,24 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
         return await response.Content.ReadFromJsonAsync<List<string>>() ?? [];
     }
 
+    public async Task<ProfileDto?> GetProfileAsync()
+    {
+        await EnsureAuthorizationHeaderAsync();
+        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, "/api/profile");
+        using var response = await _http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<ProfileDto>();
+    }
+
+    public async Task<(bool Success, string? Error)> ChangeOwnPasswordAsync(ChangeOwnPasswordRequest request)
+    {
+        await EnsureAuthorizationHeaderAsync();
+        using var message = await CreateAuthedRequestAsync(HttpMethod.Post, "/api/profile/change-password");
+        message.Content = JsonContent.Create(request);
+        using var response = await _http.SendAsync(message);
+        return response.IsSuccessStatusCode ? (true, null) : (false, await ReadErrorAsync(response));
+    }
+
     public async Task<IReadOnlyList<UserAccessDto>> GetUsersAsync()
     {
         await EnsureAuthorizationHeaderAsync();

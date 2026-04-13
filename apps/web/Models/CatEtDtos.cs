@@ -1,6 +1,8 @@
 namespace web.Models;
 
 public record LoginResponse(string Token, string Username, string Role, IReadOnlyList<string> Permissions, DateTime ExpiresAtUtc);
+public record ProfileDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
+public record ChangeOwnPasswordRequest(string CurrentPassword, string NewPassword);
 public record UserAccessDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
 public record CreateOrUpdateUserRequest(string Username, string? Password, string Role, bool IsEnabled, IReadOnlyList<string>? Permissions);
 

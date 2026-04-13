@@ -4,6 +4,10 @@ namespace api.Security;
 
 public static class ApiPermissionResolver
 {
+    // Contract:
+    // - null => public endpoint
+    // - [] => authenticated user, no feature permission required
+    // - [perm1, perm2] => authenticated user needs at least one matching permission
     public static IReadOnlyList<string>? Resolve(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
@@ -18,6 +22,11 @@ public static class ApiPermissionResolver
             string.Equals(path, "/api/health", StringComparison.OrdinalIgnoreCase))
         {
             return null;
+        }
+
+        if (path.StartsWith("/api/profile", StringComparison.OrdinalIgnoreCase))
+        {
+            return [];
         }
 
         if (path.StartsWith("/api/admin/users", StringComparison.OrdinalIgnoreCase))

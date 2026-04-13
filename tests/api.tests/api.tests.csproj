@@ -16,8 +16,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="../../apps/api/Assets/TrackedComputerMetadata.cs" Link="Source/TrackedComputerMetadata.cs" />
     <Compile Include="../../apps/api/Integrations/INinjaClient.cs" Link="Source/INinjaClient.cs" />
     <Compile Include="../../apps/api/Integrations/NinjaDevicePayloadParser.cs" Link="Source/NinjaDevicePayloadParser.cs" />
+    <Compile Include="../../apps/api/Models/AppUser.cs" Link="Source/AppUser.cs" />
+    <Compile Include="../../apps/api/Models/UserRole.cs" Link="Source/UserRole.cs" />
+    <Compile Include="../../apps/api/Security/AppPermissions.cs" Link="Source/AppPermissions.cs" />
+    <Compile Include="../../apps/api/Security/AppUserPermissionExtensions.cs" Link="Source/AppUserPermissionExtensions.cs" />
+    <Compile Include="../../apps/api/Security/ApiPermissionResolver.cs" Link="Source/ApiPermissionResolver.cs" />
+    <Compile Include="../../apps/api/Security/AppUserPasswordService.cs" Link="Source/AppUserPasswordService.cs" />
   </ItemGroup>
 </Project>

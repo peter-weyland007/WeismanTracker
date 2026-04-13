@@ -19,5 +19,7 @@ public class AppUser
     [MaxLength(4000)]
     public string PermissionsJson { get; set; } = "[]";
 
+    public DateTime? PasswordChangedAtUtc { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 }

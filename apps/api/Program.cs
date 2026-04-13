@@ -84,15 +84,17 @@ using (var scope = app.Services.CreateScope())
 
     if (!db.Users.Any())
     {
-        db.Users.Add(new AppUser
+        var adminUser = new AppUser
         {
             Username = "admin",
-            Password = "admin",
             Role = UserRole.Admin,
             IsEnabled = true,
             PermissionsJson = AppUserPermissionExtensions.SerializePermissions(AppPermissions.All),
+            PasswordChangedAtUtc = DateTime.UtcNow,
             CreatedAtUtc = DateTime.UtcNow
-        });
+        };
+        adminUser.Password = AppUserPasswordService.HashPassword(adminUser, "admin");
+        db.Users.Add(adminUser);
         db.SaveChanges();
     }
 }
@@ -103,7 +105,7 @@ app.UseAuthorization();
 app.Use(async (context, next) =>
 {
     var requiredPermissions = ApiPermissionResolver.Resolve(context);
-    if (requiredPermissions is null || requiredPermissions.Count == 0)
+    if (requiredPermissions is null)
     {
         await next();
         return;
@@ -116,7 +118,29 @@ app.Use(async (context, next) =>
         return;
     }
 
-    if (!requiredPermissions.Any(context.User.HasPermission))
+    var userIdRaw = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (int.TryParse(userIdRaw, out var currentUserId))
+    {
+        var db = context.RequestServices.GetRequiredService<AppDbContext>();
+        var currentUser = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == currentUserId);
+        if (currentUser is null || !currentUser.IsEnabled)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { message = "Authentication required." });
+            return;
+        }
+
+        var tokenPasswordChangedAt = context.User.FindFirstValue("pwd_changed_at") ?? string.Empty;
+        var currentPasswordChangedAt = currentUser.PasswordChangedAtUtc?.Ticks.ToString() ?? string.Empty;
+        if (!string.Equals(tokenPasswordChangedAt, currentPasswordChangedAt, StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsJsonAsync(new { message = "Session expired. Please sign in again." });
+            return;
+        }
+    }
+
+    if (requiredPermissions.Count > 0 && !requiredPermissions.Any(context.User.HasPermission))
     {
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new { message = "You do not have access to this feature." });
@@ -133,20 +157,29 @@ app.MapPost("/api/auth/login", (LoginRequest request, AppDbContext db) =>
     var username = request.Username.Trim();
     var password = request.Password;
 
-    var user = db.Users.FirstOrDefault(u => u.Username == username && u.Password == password);
-    if (user is null || !user.IsEnabled)
+    var user = db.Users.FirstOrDefault(u => u.Username == username);
+    if (user is null || !user.IsEnabled || !AppUserPasswordService.VerifyPassword(user, user.Password, password))
     {
         return Results.Unauthorized();
     }
 
+    if (AppUserPasswordService.NeedsRehash(user.Password))
+    {
+        user.Password = AppUserPasswordService.HashPassword(user, password);
+        user.PasswordChangedAtUtc = DateTime.UtcNow;
+        db.SaveChanges();
+    }
+
     var permissions = user.GetEffectivePermissions();
+    var passwordChangedAtTicks = user.PasswordChangedAtUtc?.Ticks.ToString() ?? string.Empty;
     var claims = new List<Claim>
     {
         new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
         new(JwtRegisteredClaimNames.UniqueName, user.Username),
         new(ClaimTypes.NameIdentifier, user.Id.ToString()),
         new(ClaimTypes.Name, user.Username),
-        new(ClaimTypes.Role, user.Role.ToString())
+        new(ClaimTypes.Role, user.Role.ToString()),
+        new("pwd_changed_at", passwordChangedAtTicks)
     };
 
     claims.AddRange(permissions.Select(permission => new Claim("perm", permission)));
@@ -172,6 +205,74 @@ app.MapPost("/api/auth/login", (LoginRequest request, AppDbContext db) =>
 });
 
 app.MapGet("/api/auth/permissions", () => Results.Ok(AppPermissions.All));
+
+app.MapGet("/api/profile", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var userId = AppUserPasswordService.GetCurrentUserId(principal);
+    if (userId is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId.Value);
+    if (user is null || !user.IsEnabled)
+    {
+        return Results.Unauthorized();
+    }
+
+    return Results.Ok(new ProfileDto(
+        user.Id,
+        user.Username,
+        user.Role.ToString(),
+        user.IsEnabled,
+        user.GetEffectivePermissions(),
+        user.CreatedAtUtc));
+});
+
+app.MapPost("/api/profile/change-password", async (ChangeOwnPasswordRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var userId = AppUserPasswordService.GetCurrentUserId(principal);
+    if (userId is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId.Value);
+    if (user is null || !user.IsEnabled)
+    {
+        return Results.Unauthorized();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.CurrentPassword))
+    {
+        return Results.BadRequest(new { message = "Current password is required." });
+    }
+
+    if (string.IsNullOrWhiteSpace(request.NewPassword))
+    {
+        return Results.BadRequest(new { message = "New password is required." });
+    }
+
+    if (!AppUserPasswordService.VerifyPassword(user, user.Password, request.CurrentPassword))
+    {
+        return Results.BadRequest(new { message = "Current password is incorrect." });
+    }
+
+    if (request.NewPassword.Length < 8)
+    {
+        return Results.BadRequest(new { message = "New password must be at least 8 characters." });
+    }
+
+    if (AppUserPasswordService.VerifyPassword(user, user.Password, request.NewPassword))
+    {
+        return Results.BadRequest(new { message = "New password must be different from your current password." });
+    }
+
+    user.Password = AppUserPasswordService.HashPassword(user, request.NewPassword);
+    user.PasswordChangedAtUtc = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { message = "Password updated." });
+});
 
 app.MapGet("/api/admin/users", (AppDbContext db) =>
 {
@@ -214,15 +315,21 @@ app.MapPost("/api/admin/users", async (CreateOrUpdateUserRequest request, AppDbC
         return Results.BadRequest(new { message = "That username already exists." });
     }
 
+    if (request.Password.Length < 8)
+    {
+        return Results.BadRequest(new { message = "Password must be at least 8 characters." });
+    }
+
     var user = new AppUser
     {
         Username = username,
-        Password = request.Password.Trim(),
         Role = role,
         IsEnabled = request.IsEnabled,
         PermissionsJson = AppUserPermissionExtensions.SerializePermissions(request.Permissions ?? []),
+        PasswordChangedAtUtc = DateTime.UtcNow,
         CreatedAtUtc = DateTime.UtcNow
     };
+    user.Password = AppUserPasswordService.HashPassword(user, request.Password);
 
     db.Users.Add(user);
     await db.SaveChangesAsync();
@@ -261,7 +368,13 @@ app.MapPut("/api/admin/users/{id:int}", async (int id, CreateOrUpdateUserRequest
 
     if (!string.IsNullOrWhiteSpace(request.Password))
     {
-        user.Password = request.Password.Trim();
+        if (request.Password.Length < 8)
+        {
+            return Results.BadRequest(new { message = "Password must be at least 8 characters." });
+        }
+
+        user.Password = AppUserPasswordService.HashPassword(user, request.Password);
+        user.PasswordChangedAtUtc = DateTime.UtcNow;
     }
 
     await db.SaveChangesAsync();
@@ -2162,6 +2275,13 @@ void EnsureAppUserAccessSchema(AppDbContext db)
         alterCommand.ExecuteNonQuery();
     }
 
+    if (!TableColumnExists(connection, "Users", "PasswordChangedAtUtc"))
+    {
+        using var alterCommand = connection.CreateCommand();
+        alterCommand.CommandText = "ALTER TABLE \"Users\" ADD COLUMN \"PasswordChangedAtUtc\" TEXT NULL;";
+        alterCommand.ExecuteNonQuery();
+    }
+
     using var backfillCommand = connection.CreateCommand();
     backfillCommand.CommandText = @"
 UPDATE ""Users""
@@ -2378,5 +2498,7 @@ app.Run();
 record ImportRow(int RowNumber, string SerialNumber, string ActivationId);
 record LoginRequest(string Username, string Password);
 record LoginResponse(string Token, string Username, string Role, IReadOnlyList<string> Permissions, DateTime ExpiresAtUtc);
+record ProfileDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
+record ChangeOwnPasswordRequest(string CurrentPassword, string NewPassword);
 record UserAccessDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
 record CreateOrUpdateUserRequest(string Username, string? Password, string Role, bool IsEnabled, IReadOnlyList<string>? Permissions);
