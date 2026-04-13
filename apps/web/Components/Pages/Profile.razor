@@ -152,6 +152,7 @@ else
             _currentPassword = string.Empty;
             _newPassword = string.Empty;
             _confirmPassword = string.Empty;
+            Snackbar.Add("Password updated. Please sign in again.", Severity.Success);
             await AuthStateProvider.SignOutAsync();
             Navigation.NavigateTo("/login", true);
         }

@@ -29,5 +29,6 @@
     <Compile Include="../../apps/api/Security/AppUserPermissionExtensions.cs" Link="Source/AppUserPermissionExtensions.cs" />
     <Compile Include="../../apps/api/Security/ApiPermissionResolver.cs" Link="Source/ApiPermissionResolver.cs" />
     <Compile Include="../../apps/api/Security/AppUserPasswordService.cs" Link="Source/AppUserPasswordService.cs" />
+    <Compile Include="../../apps/api/Security/BootstrapAdminPasswordResolver.cs" Link="Source/BootstrapAdminPasswordResolver.cs" />
   </ItemGroup>
 </Project>

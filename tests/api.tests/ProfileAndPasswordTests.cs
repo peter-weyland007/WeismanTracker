@@ -2,12 +2,53 @@ using System.Security.Claims;
 using api.Models;
 using api.Security;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace api.tests;
 
 public sealed class ProfileAndPasswordTests
 {
+    [Fact]
+    public void BootstrapAdminPasswordResolver_requires_configured_password()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => BootstrapAdminPasswordResolver.GetRequiredPassword(configuration));
+
+        Assert.Contains("BootstrapAdmin:Password", ex.Message);
+    }
+
+    [Fact]
+    public void BootstrapAdminPasswordResolver_returns_configured_password()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [BootstrapAdminPasswordResolver.ConfigKey] = "Sup3rSecureBootstrap!"
+            })
+            .Build();
+
+        var password = BootstrapAdminPasswordResolver.GetRequiredPassword(configuration);
+
+        Assert.Equal("Sup3rSecureBootstrap!", password);
+    }
+
+    [Fact]
+    public void BootstrapAdminPasswordResolver_rejects_short_password()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                [BootstrapAdminPasswordResolver.ConfigKey] = "short"
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => BootstrapAdminPasswordResolver.GetRequiredPassword(configuration));
+
+        Assert.Contains("at least 8 characters", ex.Message);
+    }
+
     [Fact]
     public void Resolve_requires_authenticated_user_for_profile_endpoints()
     {

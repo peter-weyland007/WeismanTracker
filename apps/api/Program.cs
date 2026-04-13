@@ -84,6 +84,7 @@ using (var scope = app.Services.CreateScope())
 
     if (!db.Users.Any())
     {
+        var bootstrapPassword = BootstrapAdminPasswordResolver.GetRequiredPassword(builder.Configuration);
         var adminUser = new AppUser
         {
             Username = "admin",
@@ -93,7 +94,7 @@ using (var scope = app.Services.CreateScope())
             PasswordChangedAtUtc = DateTime.UtcNow,
             CreatedAtUtc = DateTime.UtcNow
         };
-        adminUser.Password = AppUserPasswordService.HashPassword(adminUser, "admin");
+        adminUser.Password = AppUserPasswordService.HashPassword(adminUser, bootstrapPassword);
         db.Users.Add(adminUser);
         db.SaveChanges();
     }
