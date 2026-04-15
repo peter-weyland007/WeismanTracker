@@ -393,6 +393,17 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
         return all;
     }
 
+    public async Task<IReadOnlyList<TrackedComputerDto>> SearchLicenseAssignableComputersAsync(string? search, int maxResults = 50)
+    {
+        var page = await GetComputersPageAsync(
+            page: 1,
+            pageSize: Math.Clamp(maxResults, 1, 100),
+            search: search,
+            visibility: "all");
+
+        return page.Items;
+    }
+
     public async Task<IReadOnlyList<TrackedComputerDto>> GetLicenseAssignableComputersAsync()
     {
         await EnsureAuthorizationHeaderAsync();

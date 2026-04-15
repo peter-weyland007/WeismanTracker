@@ -55,13 +55,20 @@
             <MudTextField @bind-Value="LicenseFormActivationId" Immediate="true" Label="Activation ID" Placeholder="daea-c331-5f1d-4fca-929f-a839-a1a9-e2a8" HelperText="8 groups of 4 hex chars" Variant="Variant.Outlined" Required="true" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="4">
-            <MudSelect T="int?" @bind-Value="LicenseFormComputerId" Label="Computer (optional)" Variant="Variant.Outlined">
-                <MudSelectItem Value="@((int?)null)">Unassigned</MudSelectItem>
-                @foreach (var computer in _computers)
-                {
-                    <MudSelectItem Value="@((int?)computer.Id)">@FormatAssignableComputer(computer)</MudSelectItem>
-                }
-            </MudSelect>
+            <MudAutocomplete T="TrackedComputerDto"
+                             Value="LicenseFormComputer"
+                             ValueChanged="OnLicenseComputerChanged"
+                             Label="Computer (optional)"
+                             Variant="Variant.Outlined"
+                             SearchFunc="SearchComputersAsync"
+                             ToStringFunc="FormatAssignableComputer"
+                             Clearable="true"
+                             ResetValueOnEmptyText="true"
+                             CoerceText="false"
+                             Dense="true"
+                             MaxItems="25"
+                             Placeholder="Type to search computers"
+                             HelperText="Search by hostname, alias, asset tag, serial, or assignee" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="2">
             <div class="people-form-actions">
@@ -146,8 +153,10 @@
 </MudPaper>
 
 @code {
+    private const int ComputerSearchMinChars = 2;
+    private const int ComputerSearchPageSize = 25;
+
     private List<CatEtLicenseDto> _licenses = [];
-    private List<TrackedComputerDto> _computers = [];
     private bool _isLoading = true;
 
     private int TotalKeys => _licenses.Count;
@@ -157,12 +166,12 @@
 
     private string _newSerialNumber = string.Empty;
     private string _newActivationId = string.Empty;
-    private int? _selectedComputerId;
+    private TrackedComputerDto? _selectedComputer;
 
     private int? _editingLicenseId;
     private string _editingSerialNumber = string.Empty;
     private string _editActivationId = string.Empty;
-    private int? _editTrackedComputerId;
+    private TrackedComputerDto? _editSelectedComputer;
 
     private IBrowserFile? _importFile;
     private string? _importFileName;
@@ -233,18 +242,18 @@
         }
     }
 
-    private int? LicenseFormComputerId
+    private TrackedComputerDto? LicenseFormComputer
     {
-        get => _editingLicenseId is null ? _selectedComputerId : _editTrackedComputerId;
+        get => _editingLicenseId is null ? _selectedComputer : _editSelectedComputer;
         set
         {
             if (_editingLicenseId is null)
             {
-                _selectedComputerId = value;
+                _selectedComputer = value;
             }
             else
             {
-                _editTrackedComputerId = value;
+                _editSelectedComputer = value;
             }
         }
     }
@@ -254,10 +263,29 @@
     private async Task LoadAsync()
     {
         _isLoading = true;
-        _computers = (await Api.GetLicenseAssignableComputersAsync()).ToList();
         _licenses = (await Api.GetLicensesAsync()).ToList();
         _selectedLicenseIds.RemoveWhere(id => !_licenses.Any(l => l.Id == id));
         _isLoading = false;
+    }
+
+    private async Task<IEnumerable<TrackedComputerDto>> SearchComputersAsync(string value, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(value) || value.Trim().Length < ComputerSearchMinChars)
+        {
+            return LicenseFormComputer is null ? [] : [LicenseFormComputer];
+        }
+
+        var matches = await Api.SearchLicenseAssignableComputersAsync(value.Trim(), ComputerSearchPageSize);
+        cancellationToken.ThrowIfCancellationRequested();
+        return matches;
+    }
+
+    private Task OnLicenseComputerChanged(TrackedComputerDto? computer)
+    {
+        LicenseFormComputer = computer;
+        return Task.CompletedTask;
     }
 
     private void ToggleSelected(int id, bool isChecked)
@@ -440,7 +468,7 @@
         _newActivationId = activationId;
 
         _isSaving = true;
-        var (ok, err) = await Api.CreateLicenseAsync(new CreateCatEtLicenseRequest(serial, activationId, _selectedComputerId));
+        var (ok, err) = await Api.CreateLicenseAsync(new CreateCatEtLicenseRequest(serial, activationId, _selectedComputer?.Id));
         _isSaving = false;
 
         if (!ok)
@@ -451,7 +479,7 @@
 
         _newSerialNumber = string.Empty;
         _newActivationId = string.Empty;
-        _selectedComputerId = null;
+        _selectedComputer = null;
         await LoadAsync();
         Snackbar.Add("License record saved.", Severity.Success);
     }
@@ -461,7 +489,7 @@
         _editingLicenseId = row.Id;
         _editingSerialNumber = row.SerialNumber;
         _editActivationId = row.ActivationId ?? string.Empty;
-        _editTrackedComputerId = row.TrackedComputerId;
+        _editSelectedComputer = BuildAssignedComputer(row);
     }
 
     private void CancelEdit()
@@ -469,7 +497,7 @@
         _editingLicenseId = null;
         _editingSerialNumber = string.Empty;
         _editActivationId = string.Empty;
-        _editTrackedComputerId = null;
+        _editSelectedComputer = null;
     }
 
     private async Task SaveEditAsync()
@@ -489,7 +517,7 @@
         _editActivationId = activationId;
 
         _isSaving = true;
-        var (ok, err) = await Api.UpdateLicenseAsync(_editingLicenseId.Value, new UpdateCatEtLicenseRequest(activationId, _editTrackedComputerId));
+        var (ok, err) = await Api.UpdateLicenseAsync(_editingLicenseId.Value, new UpdateCatEtLicenseRequest(activationId, _editSelectedComputer?.Id));
         _isSaving = false;
 
         if (!ok)
@@ -659,8 +687,36 @@
                 ? $"{row.Hostname} ({row.AssetTag})"
                 : $"{row.ComputerAlias} ({row.Hostname}) ({row.AssetTag})";
 
-    private static string FormatAssignableComputer(TrackedComputerDto computer)
+    private static TrackedComputerDto? BuildAssignedComputer(CatEtLicenseDto row)
     {
+        if (row.TrackedComputerId is null || string.IsNullOrWhiteSpace(row.Hostname) || string.IsNullOrWhiteSpace(row.AssetTag))
+        {
+            return null;
+        }
+
+        return new TrackedComputerDto(
+            row.TrackedComputerId.Value,
+            row.Hostname,
+            row.ComputerAlias,
+            row.AssetTag,
+            null,
+            null,
+            row.TrackedPersonId,
+            row.TrackedPersonName,
+            row.CreatedAtUtc,
+            false,
+            false,
+            false,
+            "Computer");
+    }
+
+    private static string FormatAssignableComputer(TrackedComputerDto? computer)
+    {
+        if (computer is null)
+        {
+            return string.Empty;
+        }
+
         var deviceName = string.IsNullOrWhiteSpace(computer.Alias)
             ? computer.Hostname
             : $"{computer.Alias} ({computer.Hostname})";
