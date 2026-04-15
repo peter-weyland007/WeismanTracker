@@ -6,8 +6,7 @@
 
 <PageTitle>WeismanTracker</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-1">WeismanTracker</MudText>
-<MudText Typo="Typo.subtitle1" Class="mb-4 mud-secondary-text">CAT ET activation key ownership and assignment tracking</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">WeismanTracker</MudText>
 
 @if (_resourceCards.Count == 0)
 {
@@ -29,7 +28,6 @@ else
                                 <MudIcon Icon="@card.Icon" Color="Color.Primary" Size="Size.Large" />
                                 <div>
                                     <MudText Typo="Typo.h6">@card.Title</MudText>
-                                    <MudText Typo="Typo.caption" Class="mud-secondary-text">@card.Description</MudText>
                                 </div>
                             </MudStack>
                             <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Color="Color.Default" />
