@@ -26,7 +26,12 @@ public static class PrinterTelemetryCollectorSettingsSupport
     }
 
     public static async Task<PrinterTelemetryIntegrationConfigDto> GetConfigDtoAsync(AppDbContext db, IConfiguration configuration, CancellationToken cancellationToken = default)
-        => new(!string.IsNullOrWhiteSpace(await ResolveConfiguredApiKeyAsync(db, configuration, cancellationToken)));
+    {
+        var apiKey = await ResolveConfiguredApiKeyAsync(db, configuration, cancellationToken);
+        return new(
+            HasCollectorApiKey: !string.IsNullOrWhiteSpace(apiKey),
+            CollectorApiKey: apiKey);
+    }
 
     public static string GenerateApiKey()
         => Convert.ToHexString(RandomNumberGenerator.GetBytes(32));

@@ -153,7 +153,7 @@
     </div>
     <MudGrid>
         <MudItem xs="12" md="8">
-            <MudTextField @bind-Value="_printerTelemetryCollectorApiKey" Label="Collector API Key" Variant="Variant.Outlined" InputType="InputType.Password" />
+            <MudTextField @bind-Value="_printerTelemetryCollectorApiKey" Label="Collector API Key" Variant="Variant.Outlined" />
             <MudText Typo="Typo.caption" Color="Color.Secondary">Stored key exists: @(_printerTelemetryHasCollectorApiKey ? "Yes" : "No")</MudText>
         </MudItem>
         <MudItem xs="12" md="4" Class="d-flex align-end ga-2">
@@ -259,7 +259,7 @@
         _graphClientSecret = string.Empty;
 
         _printerTelemetryHasCollectorApiKey = settings.PrinterTelemetry.HasCollectorApiKey;
-        _printerTelemetryCollectorApiKey = string.Empty;
+        _printerTelemetryCollectorApiKey = settings.PrinterTelemetry.CollectorApiKey ?? string.Empty;
     }
 
     private async Task RefreshSyncStatusAsync()
@@ -494,7 +494,7 @@
             "Enable SNMP on each printer you want polled and keep the collector host able to reach UDP 161.",
             "After saving the key, restart or refresh your collector so new uploads use the updated secret."
         ];
-        _helpNote = "WeismanTracker does not reveal the existing key back to the UI. Rotating the key here means you must update PrinterOps to match.";
+        _helpNote = "The saved key is shown directly in this field. Rotating the key here means you must update PrinterOps to match.";
         _helpOpen = true;
         return Task.CompletedTask;
     }

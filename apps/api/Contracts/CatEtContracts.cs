@@ -167,7 +167,8 @@ public record MicrosoftGraphIntegrationConfigDto(
     IReadOnlyList<string> AzureSubscriptionIds);
 
 public record PrinterTelemetryIntegrationConfigDto(
-    bool HasCollectorApiKey);
+    bool HasCollectorApiKey,
+    string? CollectorApiKey);
 
 public record IntegrationSettingsDto(
     NinjaIntegrationConfigDto Ninja,

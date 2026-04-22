@@ -566,7 +566,7 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
            ?? new IntegrationSettingsDto(
                new NinjaIntegrationConfigDto(string.Empty, string.Empty, false, "monitoring", "/ws/oauth/token", "/v2/devices", 200),
                new MicrosoftGraphIntegrationConfigDto(string.Empty, string.Empty, false, "https://graph.microsoft.com", "https://management.azure.com", 999, []),
-               new PrinterTelemetryIntegrationConfigDto(false));
+               new PrinterTelemetryIntegrationConfigDto(false, null));
     }
 
     public async Task<(bool Success, string? Error)> SavePrinterTelemetryIntegrationSettingsAsync(UpdatePrinterTelemetryIntegrationConfigRequest request)
