@@ -1,0 +1,318 @@
+@page "/assets/printers"
+@attribute [Authorize(Policy = AppPermissions.Printers)]
+@inject CatEtApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Printer Statistics</PageTitle>
+
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Printer Statistics</MudText>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="_isLoading">Refresh</MudButton>
+</MudStack>
+
+@if (!string.IsNullOrWhiteSpace(_loadError))
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+        @_loadError
+    </MudAlert>
+}
+else if (_rows.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+        No printer telemetry has been ingested yet. Once the collector starts POSTing snapshots to <strong>/api/printers/telemetry</strong>, this table will populate automatically.
+    </MudAlert>
+}
+
+<MudPaper Class="pa-2" Elevation="1">
+    <MudTable T="PrinterTelemetryDto" Items="_rows" Hover="true" Dense="true" Loading="_isLoading" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>Printer</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Model</MudTh>
+            <MudTh>Address</MudTh>
+            <MudTh>Serial</MudTh>
+            <MudTh>Usage</MudTh>
+            <MudTh>Toner</MudTh>
+            <MudTh>Current Alert</MudTh>
+            <MudTh>Last Updated</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Printer">
+                <MudStack Spacing="0">
+                    <MudText Typo="Typo.body1">@context.Name</MudText>
+                    @if (!string.IsNullOrWhiteSpace(context.CollectorId))
+                    {
+                        <MudText Typo="Typo.caption" Class="text-secondary">Collector: @context.CollectorId</MudText>
+                    }
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Color="@GetStatusColor(context.Status)" Variant="Variant.Filled" Size="Size.Small">@FormatStatus(context.Status)</MudChip>
+            </MudTd>
+            <MudTd DataLabel="Model">
+                <MudStack Spacing="0">
+                    @foreach (var line in FormatModelLines(context))
+                    {
+                        <MudText Typo="Typo.body2">@line</MudText>
+                    }
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Address">
+                <MudStack Spacing="0">
+                    @foreach (var line in FormatAddressLines(context))
+                    {
+                        <MudText Typo="Typo.body2">@line</MudText>
+                    }
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Serial">@(string.IsNullOrWhiteSpace(context.SerialNumber) ? "—" : context.SerialNumber)</MudTd>
+            <MudTd DataLabel="Usage">
+                <MudStack Spacing="0">
+                    @foreach (var line in FormatUsageLines(context))
+                    {
+                        <MudText Typo="Typo.body2">@line</MudText>
+                    }
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Toner">
+                <MudStack Spacing="0">
+                    @foreach (var consumable in GetOrderedConsumables(context))
+                    {
+                        <MudText Typo="Typo.body2" Color="@GetConsumableColor(consumable)">@FormatConsumableLine(consumable)</MudText>
+                    }
+                    @if (context.Consumables.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2">No consumable data</MudText>
+                    }
+                </MudStack>
+            </MudTd>
+            <MudTd DataLabel="Current Alert">@(string.IsNullOrWhiteSpace(context.CurrentAlert) ? "—" : context.CurrentAlert)</MudTd>
+            <MudTd DataLabel="Last Updated">@FormatTimestamp(context)</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4 mud-secondary-text">
+                No printer statistics available yet.
+            </MudText>
+        </NoRecordsContent>
+    </MudTable>
+</MudPaper>
+
+@code {
+    private List<PrinterTelemetryDto> _rows = [];
+    private bool _isLoading;
+    private string? _loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        await LoadAsync(showRefreshToast: true);
+    }
+
+    private async Task LoadAsync(bool showRefreshToast = false)
+    {
+        _isLoading = true;
+        _loadError = null;
+
+        try
+        {
+            _rows = (await Api.GetPrintersAsync())
+                .OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Hostname, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (showRefreshToast)
+            {
+                Snackbar.Add("Printer telemetry refreshed.", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Failed to load printer telemetry. {ex.Message}";
+            if (showRefreshToast)
+            {
+                Snackbar.Add("Failed to refresh printer telemetry.", Severity.Error);
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private static IReadOnlyList<string> FormatModelLines(PrinterTelemetryDto row)
+    {
+        var parts = new[] { row.Manufacturer, row.Model }
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return parts.Count == 0 ? ["—"] : parts;
+    }
+
+    private static IReadOnlyList<string> FormatAddressLines(PrinterTelemetryDto row)
+    {
+        var parts = new[] { row.Hostname, row.IpAddress }
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return parts.Count == 0 ? ["—"] : parts;
+    }
+
+    private static IReadOnlyList<string> FormatUsageLines(PrinterTelemetryDto row)
+    {
+        var parts = new List<string>();
+
+        if (row.TotalPages is not null)
+        {
+            parts.Add($"Total {row.TotalPages:N0}");
+        }
+
+        if (row.MonoPages is not null)
+        {
+            parts.Add($"Mono {row.MonoPages:N0}");
+        }
+
+        if (row.ColorPages is not null)
+        {
+            parts.Add($"Color {row.ColorPages:N0}");
+        }
+
+        return parts.Count == 0 ? ["—"] : parts;
+    }
+
+    private static IReadOnlyList<PrinterConsumableDto> GetOrderedConsumables(PrinterTelemetryDto row)
+        => row.Consumables
+            .OrderBy(x => GetConsumableSortOrder(x.Name))
+            .ThenBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static int GetConsumableSortOrder(string? name)
+    {
+        var normalized = name?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (normalized.Contains("black toner"))
+        {
+            return 0;
+        }
+
+        if (normalized.Contains("waste"))
+        {
+            return 1;
+        }
+
+        if (normalized.Contains("toner"))
+        {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private static string FormatConsumableLine(PrinterConsumableDto consumable)
+    {
+        var parts = new List<string> { consumable.Name };
+
+        if (consumable.PercentRemaining is not null)
+        {
+            parts.Add($"{consumable.PercentRemaining:0.#}%");
+        }
+
+        if (!string.IsNullOrWhiteSpace(consumable.Status))
+        {
+            parts.Add($"({consumable.Status.Trim()})");
+        }
+
+        return string.Join(' ', parts);
+    }
+
+    private static Color GetConsumableColor(PrinterConsumableDto consumable)
+    {
+        var remaining = consumable.PercentRemaining;
+        var status = consumable.Status?.Trim().ToLowerInvariant() ?? string.Empty;
+        var isWaste = (consumable.Name ?? string.Empty).Contains("waste", StringComparison.OrdinalIgnoreCase);
+
+        if (status.Contains("replace") || status.Contains("full"))
+        {
+            return Color.Error;
+        }
+
+        if (remaining is null)
+        {
+            if (status.Contains("monitor"))
+            {
+                return Color.Warning;
+            }
+
+            return string.IsNullOrWhiteSpace(status)
+                ? Color.Default
+                : Color.Info;
+        }
+
+        if (remaining <= 5)
+        {
+            return Color.Error;
+        }
+
+        if (isWaste)
+        {
+            if (remaining <= 10)
+            {
+                return Color.Error;
+            }
+
+            if (remaining <= 15 || status.Contains("monitor"))
+            {
+                return Color.Warning;
+            }
+
+            return Color.Success;
+        }
+
+        if (remaining <= 10)
+        {
+            return Color.Warning;
+        }
+
+        if (remaining <= 20)
+        {
+            return Color.Warning;
+        }
+
+        return Color.Success;
+    }
+
+    private static string FormatTimestamp(PrinterTelemetryDto row)
+    {
+        var timestamp = row.LastCapturedAtUtc ?? row.LastIngestedAtUtc;
+        return timestamp == default ? "—" : timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private static string FormatStatus(string? status)
+        => string.IsNullOrWhiteSpace(status) ? "Unknown" : status.Trim();
+
+    private static Color GetStatusColor(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return Color.Default;
+        }
+
+        return status.Trim().ToLowerInvariant() switch
+        {
+            "online" => Color.Success,
+            "ready" => Color.Success,
+            "idle" => Color.Success,
+            "warning" => Color.Warning,
+            "degraded" => Color.Warning,
+            "offline" => Color.Error,
+            "error" => Color.Error,
+            _ => Color.Info
+        };
+    }
+}

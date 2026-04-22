@@ -15,6 +15,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<EntityReference> EntityReferences => Set<EntityReference>();
     public DbSet<IntegrationProviderConfig> IntegrationProviderConfigs => Set<IntegrationProviderConfig>();
     public DbSet<IntegrationSyncStatus> IntegrationSyncStatuses => Set<IntegrationSyncStatus>();
+    public DbSet<PrinterTelemetryRecord> PrinterTelemetryRecords => Set<PrinterTelemetryRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -27,6 +27,10 @@
                 {
                     <MudNavLink Href="/assets/other-devices" Icon="@Icons.Material.Filled.DevicesOther">Other Devices</MudNavLink>
                 }
+                @if (Has(AppPermissions.Printers))
+                {
+                    <MudNavLink Href="/assets/printers" Icon="@Icons.Material.Filled.Print">Printers</MudNavLink>
+                }
             </MudNavGroup>
         }
 
@@ -75,7 +79,7 @@
     private ClaimsPrincipal _user = new(new ClaimsIdentity());
     private bool _isAuthenticated;
 
-    private bool ShowCompanyAssets => Has(AppPermissions.People) || Has(AppPermissions.Computers) || Has(AppPermissions.MobileDevices) || Has(AppPermissions.OtherDevices);
+    private bool ShowCompanyAssets => Has(AppPermissions.People) || Has(AppPermissions.Computers) || Has(AppPermissions.Printers) || Has(AppPermissions.MobileDevices) || Has(AppPermissions.OtherDevices);
 
     protected override async Task OnInitializedAsync()
     {

@@ -146,6 +146,23 @@
     </MudGrid>
 </MudPaper>
 
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex align-center mb-3">
+        <MudText Typo="Typo.h6" Class="mb-0 me-1">Printer Telemetry Collector</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Info" Size="Size.Small" aria-label="Printer collector setup help" OnClick="ShowPrinterTelemetryHelpAsync" />
+    </div>
+    <MudGrid>
+        <MudItem xs="12" md="8">
+            <MudTextField @bind-Value="_printerTelemetryCollectorApiKey" Label="Collector API Key" Variant="Variant.Outlined" InputType="InputType.Password" />
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Stored key exists: @(_printerTelemetryHasCollectorApiKey ? "Yes" : "No")</MudText>
+        </MudItem>
+        <MudItem xs="12" md="4" Class="d-flex align-end ga-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SavePrinterTelemetryAsync" Disabled="_isSaving">Save Printer Key</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" FullWidth="true" OnClick="GeneratePrinterTelemetryKey">Generate New Key</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
 @if (_helpOpen)
 {
     <MudOverlay Visible="true" DarkBackground="true" />
@@ -207,6 +224,9 @@
     private int _graphPageSize = 999;
     private string _azureSubscriptionIdsCsv = string.Empty;
 
+    private string _printerTelemetryCollectorApiKey = string.Empty;
+    private bool _printerTelemetryHasCollectorApiKey;
+
     private IntegrationSyncStatusDto _ninjaStatus = new("Ninja", false, "Never", null, null, null, 0, 0, null, null, []);
     private IntegrationSyncStatusDto _microsoftStatus = new("Microsoft", false, "Never", null, null, null, 0, 0, null, null, []);
 
@@ -237,6 +257,9 @@
         _graphPageSize = settings.MicrosoftGraph.PageSize;
         _azureSubscriptionIdsCsv = string.Join(",", settings.MicrosoftGraph.AzureSubscriptionIds);
         _graphClientSecret = string.Empty;
+
+        _printerTelemetryHasCollectorApiKey = settings.PrinterTelemetry.HasCollectorApiKey;
+        _printerTelemetryCollectorApiKey = string.Empty;
     }
 
     private async Task RefreshSyncStatusAsync()
@@ -310,6 +333,34 @@
 
         await LoadAsync();
         Snackbar.Add("Microsoft settings saved.", Severity.Success);
+    }
+
+    private async Task SavePrinterTelemetryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_printerTelemetryCollectorApiKey))
+        {
+            Snackbar.Add("Printer collector API key is required.", Severity.Warning);
+            return;
+        }
+
+        _isSaving = true;
+        var (success, error) = await Api.SavePrinterTelemetryIntegrationSettingsAsync(new UpdatePrinterTelemetryIntegrationConfigRequest(
+            _printerTelemetryCollectorApiKey.Trim()));
+        _isSaving = false;
+
+        if (!success)
+        {
+            Snackbar.Add(error ?? "Failed to save printer collector key.", Severity.Error);
+            return;
+        }
+
+        await LoadAsync();
+        Snackbar.Add("Printer collector key saved.", Severity.Success);
+    }
+
+    private void GeneratePrinterTelemetryKey()
+    {
+        _printerTelemetryCollectorApiKey = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
     }
 
     private async Task SyncNinjaNowAsync()
@@ -428,6 +479,22 @@
             "Save settings, then click Sync Now to import users/devices immediately."
         ];
         _helpNote = "Subscription IDs are optional if you do not need Azure VM import.";
+        _helpOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private Task ShowPrinterTelemetryHelpAsync()
+    {
+        _helpTitle = "Printer Telemetry Collector Setup";
+        _helpSteps =
+        [
+            "Generate or paste a long random collector key here and save it in WeismanTracker.",
+            "Use that exact same value in PrinterOps under Connector:Upload:ApiKey.",
+            "Point PrinterOps at this WeismanTracker API base URL under Connector:Upload:ApiBaseUrl.",
+            "Enable SNMP on each printer you want polled and keep the collector host able to reach UDP 161.",
+            "After saving the key, restart or refresh your collector so new uploads use the updated secret."
+        ];
+        _helpNote = "WeismanTracker does not reveal the existing key back to the UI. Rotating the key here means you must update PrinterOps to match.";
         _helpOpen = true;
         return Task.CompletedTask;
     }

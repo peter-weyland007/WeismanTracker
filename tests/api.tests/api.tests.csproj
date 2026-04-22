@@ -32,6 +32,9 @@
     <Compile Include="../../apps/api/Security/ApiPermissionResolver.cs" Link="Source/ApiPermissionResolver.cs" />
     <Compile Include="../../apps/api/Security/AppUserPasswordService.cs" Link="Source/AppUserPasswordService.cs" />
     <Compile Include="../../apps/api/Security/BootstrapAdminPasswordResolver.cs" Link="Source/BootstrapAdminPasswordResolver.cs" />
+    <Compile Include="../../apps/api/Contracts/CatEtContracts.cs" Link="Source/CatEtContracts.cs" />
+    <Compile Include="../../apps/api/Models/PrinterTelemetryRecord.cs" Link="Source/PrinterTelemetryRecord.cs" />
+    <Compile Include="../../apps/api/Printers/PrinterTelemetrySupport.cs" Link="Source/PrinterTelemetrySupport.cs" />
   </ItemGroup>
 
   <ItemGroup>

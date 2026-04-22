@@ -6,6 +6,7 @@ public static class AppPermissions
 {
     public const string People = "people";
     public const string Computers = "computers";
+    public const string Printers = "printers";
     public const string MobileDevices = "mobile-devices";
     public const string OtherDevices = "other-devices";
     public const string CellPhoneAllowance = "cell-phone-allowance";
@@ -19,6 +20,7 @@ public static class AppPermissions
     [
         People,
         Computers,
+        Printers,
         MobileDevices,
         OtherDevices,
         CellPhoneAllowance,
@@ -36,6 +38,7 @@ public static class AppPermissions
         [
             People,
             Computers,
+            Printers,
             MobileDevices,
             OtherDevices,
             CellPhoneAllowance,
@@ -46,6 +49,7 @@ public static class AppPermissions
         [
             People,
             Computers,
+            Printers,
             MobileDevices,
             OtherDevices,
             CellPhoneAllowance,

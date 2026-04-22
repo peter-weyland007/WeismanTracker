@@ -56,10 +56,16 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
         {
             using var request = await CreateAuthedRequestAsync(HttpMethod.Get, url);
             using var response = await _http.SendAsync(request);
-            if ((response.StatusCode == System.Net.HttpStatusCode.Unauthorized || response.StatusCode == System.Net.HttpStatusCode.Forbidden) && attempt == 0)
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized || response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
-                await Task.Delay(150);
-                continue;
+                if (attempt == 0)
+                {
+                    await Task.Delay(150);
+                    continue;
+                }
+
+                await tokenStore.ClearTokenAsync();
+                return default;
             }
 
             response.EnsureSuccessStatusCode();
@@ -83,19 +89,13 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
     public async Task<IReadOnlyList<string>> GetAvailablePermissionsAsync()
     {
         await EnsureAuthorizationHeaderAsync();
-        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, "/api/auth/permissions");
-        using var response = await _http.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<List<string>>() ?? [];
+        return await GetAuthedJsonAsync<List<string>>("/api/auth/permissions") ?? [];
     }
 
     public async Task<ProfileDto?> GetProfileAsync()
     {
         await EnsureAuthorizationHeaderAsync();
-        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, "/api/profile");
-        using var response = await _http.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<ProfileDto>();
+        return await GetAuthedJsonAsync<ProfileDto>("/api/profile");
     }
 
     public async Task<(bool Success, string? Error)> ChangeOwnPasswordAsync(ChangeOwnPasswordRequest request)
@@ -107,13 +107,15 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
         return response.IsSuccessStatusCode ? (true, null) : (false, await ReadErrorAsync(response));
     }
 
+    public async Task<IReadOnlyList<PrinterTelemetryDto>> GetPrintersAsync()
+    {
+        return await GetAuthedJsonAsync<List<PrinterTelemetryDto>>("/api/printers") ?? [];
+    }
+
     public async Task<IReadOnlyList<UserAccessDto>> GetUsersAsync()
     {
         await EnsureAuthorizationHeaderAsync();
-        using var request = await CreateAuthedRequestAsync(HttpMethod.Get, "/api/admin/users");
-        using var response = await _http.SendAsync(request);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<List<UserAccessDto>>() ?? [];
+        return await GetAuthedJsonAsync<List<UserAccessDto>>("/api/admin/users") ?? [];
     }
 
     public async Task<(bool Success, string? Error)> CreateUserAsync(CreateOrUpdateUserRequest request)
@@ -563,7 +565,20 @@ public class CatEtApiClient(IHttpClientFactory httpClientFactory, AuthTokenStore
         return await GetAuthedJsonAsync<IntegrationSettingsDto>("/api/integrations/settings")
            ?? new IntegrationSettingsDto(
                new NinjaIntegrationConfigDto(string.Empty, string.Empty, false, "monitoring", "/ws/oauth/token", "/v2/devices", 200),
-               new MicrosoftGraphIntegrationConfigDto(string.Empty, string.Empty, false, "https://graph.microsoft.com", "https://management.azure.com", 999, []));
+               new MicrosoftGraphIntegrationConfigDto(string.Empty, string.Empty, false, "https://graph.microsoft.com", "https://management.azure.com", 999, []),
+               new PrinterTelemetryIntegrationConfigDto(false));
+    }
+
+    public async Task<(bool Success, string? Error)> SavePrinterTelemetryIntegrationSettingsAsync(UpdatePrinterTelemetryIntegrationConfigRequest request)
+    {
+        await EnsureAuthorizationHeaderAsync();
+        var response = await _http.PutAsJsonAsync("/api/integrations/settings/printer-telemetry", request);
+        if (response.IsSuccessStatusCode)
+        {
+            return (true, null);
+        }
+
+        return (false, await ReadErrorAsync(response));
     }
 
     public async Task<(bool Success, string? Error)> SaveNinjaIntegrationSettingsAsync(UpdateNinjaIntegrationConfigRequest request)

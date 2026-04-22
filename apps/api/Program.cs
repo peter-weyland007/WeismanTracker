@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +12,7 @@ using api.Exports;
 using api.Contracts;
 using api.Data;
 using api.Integrations;
+using api.Printers;
 using api.Models;
 using api.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -82,6 +84,7 @@ using (var scope = app.Services.CreateScope())
     EnsureIntegrationProviderConfigSchema(db);
     EnsureIntegrationSyncStatusSchema(db);
     EnsureAppUserAccessSchema(db);
+    EnsurePrinterTelemetrySchema(db);
 
     if (!db.Users.Any())
     {
@@ -274,6 +277,49 @@ app.MapPost("/api/profile/change-password", async (ChangeOwnPasswordRequest requ
     user.PasswordChangedAtUtc = DateTime.UtcNow;
     await db.SaveChangesAsync();
     return Results.Ok(new { message = "Password updated." });
+});
+
+app.MapPost("/api/printers/telemetry", async (HttpRequest httpRequest, IngestPrinterTelemetryRequest request, AppDbContext db, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    var configuredApiKey = await PrinterTelemetryCollectorSettingsSupport.ResolveConfiguredApiKeyAsync(db, configuration, cancellationToken);
+    if (string.IsNullOrWhiteSpace(configuredApiKey))
+    {
+        return Results.Json(new { message = "Printer telemetry collector API key is not configured." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    if (!IsAuthorizedPrinterCollector(httpRequest, configuredApiKey))
+    {
+        return Results.Unauthorized();
+    }
+
+    var nowUtc = DateTime.UtcNow;
+    var identityKey = PrinterTelemetrySupport.ResolveIdentityKey(request);
+    var record = await db.PrinterTelemetryRecords.FirstOrDefaultAsync(x => x.IdentityKey == identityKey);
+    if (record is null)
+    {
+        record = new PrinterTelemetryRecord
+        {
+            CreatedAtUtc = nowUtc
+        };
+
+        db.PrinterTelemetryRecords.Add(record);
+    }
+
+    PrinterTelemetrySupport.ApplySnapshot(record, request, nowUtc);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(PrinterTelemetrySupport.ToDto(record));
+});
+
+app.MapGet("/api/printers", async (AppDbContext db) =>
+{
+    var records = await db.PrinterTelemetryRecords
+        .AsNoTracking()
+        .OrderBy(x => x.Name)
+        .ThenBy(x => x.Hostname)
+        .ToListAsync();
+
+    return Results.Ok(records.Select(PrinterTelemetrySupport.ToDto).ToList());
 });
 
 app.MapGet("/api/admin/users", (AppDbContext db) =>
@@ -594,7 +640,7 @@ app.MapPost("/api/entities/{entityType}/{entityId:int}/references/reconcile", as
     return Results.Ok(response);
 });
 
-app.MapGet("/api/integrations/settings", async (AppDbContext db) =>
+app.MapGet("/api/integrations/settings", async (AppDbContext db, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     var ninjaConfig = await db.IntegrationProviderConfigs.AsNoTracking().FirstOrDefaultAsync(x => x.Provider == "Ninja");
     var graphConfig = await db.IntegrationProviderConfigs.AsNoTracking().FirstOrDefaultAsync(x => x.Provider == "MicrosoftGraph");
@@ -625,7 +671,30 @@ app.MapGet("/api/integrations/settings", async (AppDbContext db) =>
         PageSize: graphConfig?.PageSize is > 0 ? graphConfig.PageSize.Value : 999,
         AzureSubscriptionIds: azureSubs);
 
-    return Results.Ok(new IntegrationSettingsDto(ninja, graph));
+    var printerTelemetry = await PrinterTelemetryCollectorSettingsSupport.GetConfigDtoAsync(db, configuration, cancellationToken);
+
+    return Results.Ok(new IntegrationSettingsDto(ninja, graph, printerTelemetry));
+});
+
+app.MapPut("/api/integrations/settings/printer-telemetry", async (UpdatePrinterTelemetryIntegrationConfigRequest request, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.CollectorApiKey))
+    {
+        return Results.BadRequest(new { message = "CollectorApiKey is required." });
+    }
+
+    var config = await db.IntegrationProviderConfigs.FirstOrDefaultAsync(x => x.Provider == PrinterTelemetryCollectorSettingsSupport.ProviderName);
+    if (config is null)
+    {
+        config = new IntegrationProviderConfig { Provider = PrinterTelemetryCollectorSettingsSupport.ProviderName };
+        db.IntegrationProviderConfigs.Add(config);
+    }
+
+    config.ClientSecret = request.CollectorApiKey.Trim();
+    config.UpdatedAtUtc = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { message = "Printer telemetry collector key saved." });
 });
 
 app.MapPut("/api/integrations/settings/ninja", async (UpdateNinjaIntegrationConfigRequest request, AppDbContext db) =>
@@ -2322,6 +2391,47 @@ CREATE UNIQUE INDEX IF NOT EXISTS ""IX_IntegrationSyncStatuses_SyncTarget"" ON "
     }
 }
 
+void EnsurePrinterTelemetrySchema(AppDbContext db)
+{
+    using var connection = db.Database.GetDbConnection();
+
+    if (connection.State != ConnectionState.Open)
+    {
+        connection.Open();
+    }
+
+    using var command = connection.CreateCommand();
+    command.CommandText = @"
+CREATE TABLE IF NOT EXISTS ""PrinterTelemetryRecords"" (
+    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_PrinterTelemetryRecords"" PRIMARY KEY AUTOINCREMENT,
+    ""IdentityKey"" TEXT NOT NULL,
+    ""CollectorId"" TEXT NULL,
+    ""Name"" TEXT NOT NULL,
+    ""Hostname"" TEXT NULL,
+    ""IpAddress"" TEXT NULL,
+    ""Manufacturer"" TEXT NULL,
+    ""Model"" TEXT NULL,
+    ""SerialNumber"" TEXT NULL,
+    ""Status"" TEXT NOT NULL,
+    ""CurrentAlert"" TEXT NULL,
+    ""TotalPages"" INTEGER NULL,
+    ""MonoPages"" INTEGER NULL,
+    ""ColorPages"" INTEGER NULL,
+    ""ConsumableSummary"" TEXT NULL,
+    ""ConsumablesJson"" TEXT NULL,
+    ""LastCapturedAtUtc"" TEXT NULL,
+    ""LastIngestedAtUtc"" TEXT NOT NULL,
+    ""CreatedAtUtc"" TEXT NOT NULL,
+    ""UpdatedAtUtc"" TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ""IX_PrinterTelemetryRecords_IdentityKey"" ON ""PrinterTelemetryRecords"" (""IdentityKey"");
+CREATE INDEX IF NOT EXISTS ""IX_PrinterTelemetryRecords_Hostname"" ON ""PrinterTelemetryRecords"" (""Hostname"");
+CREATE INDEX IF NOT EXISTS ""IX_PrinterTelemetryRecords_IpAddress"" ON ""PrinterTelemetryRecords"" (""IpAddress"");
+";
+
+    command.ExecuteNonQuery();
+}
+
 void EnsureAppUserAccessSchema(AppDbContext db)
 {
     using var connection = db.Database.GetDbConnection();
@@ -2366,6 +2476,25 @@ WHERE COALESCE(NULLIF(""PermissionsJson"", ''), '') = '' OR ""Role"" = 0;";
     adminPermissionsParam.Value = AppUserPermissionExtensions.SerializePermissions(AppPermissions.All);
     backfillCommand.Parameters.Add(adminPermissionsParam);
     backfillCommand.ExecuteNonQuery();
+}
+
+bool IsAuthorizedPrinterCollector(HttpRequest request, string configuredApiKey)
+{
+    if (!request.Headers.TryGetValue(PrinterTelemetryCollectorSettingsSupport.HeaderName, out var providedValue))
+    {
+        return false;
+    }
+
+    var provided = providedValue.ToString();
+    if (string.IsNullOrWhiteSpace(provided))
+    {
+        return false;
+    }
+
+    var configuredBytes = Encoding.UTF8.GetBytes(configuredApiKey);
+    var providedBytes = Encoding.UTF8.GetBytes(provided);
+    return configuredBytes.Length == providedBytes.Length
+        && CryptographicOperations.FixedTimeEquals(configuredBytes, providedBytes);
 }
 
 bool TableColumnExists(DbConnection connection, string tableName, string columnName)

@@ -63,6 +63,31 @@ public sealed class ProfileAndPasswordTests
     }
 
     [Fact]
+    public void Resolve_allows_printer_telemetry_ingest_without_jwt_permission()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Post;
+        context.Request.Path = "/api/printers/telemetry";
+
+        var permissions = ApiPermissionResolver.Resolve(context);
+
+        Assert.Null(permissions);
+    }
+
+    [Fact]
+    public void Resolve_requires_printers_permission_for_printer_reads()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Method = HttpMethods.Get;
+        context.Request.Path = "/api/printers";
+
+        var permissions = ApiPermissionResolver.Resolve(context);
+
+        Assert.NotNull(permissions);
+        Assert.Equal([AppPermissions.Printers], permissions);
+    }
+
+    [Fact]
     public void HashPassword_produces_non_plaintext_hash_that_verifies()
     {
         var user = new AppUser { Username = "mark" };

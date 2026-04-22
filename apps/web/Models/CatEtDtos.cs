@@ -112,9 +112,16 @@ public record MicrosoftGraphIntegrationConfigDto(
     int PageSize,
     IReadOnlyList<string> AzureSubscriptionIds);
 
+public record PrinterTelemetryIntegrationConfigDto(
+    bool HasCollectorApiKey);
+
 public record IntegrationSettingsDto(
     NinjaIntegrationConfigDto Ninja,
-    MicrosoftGraphIntegrationConfigDto MicrosoftGraph);
+    MicrosoftGraphIntegrationConfigDto MicrosoftGraph,
+    PrinterTelemetryIntegrationConfigDto PrinterTelemetry);
+
+public record UpdatePrinterTelemetryIntegrationConfigRequest(
+    string? CollectorApiKey);
 
 public record UpdateNinjaIntegrationConfigRequest(
     string BaseUrl,
@@ -169,3 +176,27 @@ public record TriggerIntegrationSyncResponseDto(
     int MatchedCount,
     DateTime StartedAtUtc,
     DateTime CompletedAtUtc);
+
+public record PrinterConsumableDto(
+    string Name,
+    decimal? PercentRemaining,
+    string? Status);
+
+public record PrinterTelemetryDto(
+    int Id,
+    string? CollectorId,
+    string Name,
+    string? Hostname,
+    string? IpAddress,
+    string? Manufacturer,
+    string? Model,
+    string? SerialNumber,
+    string Status,
+    string? CurrentAlert,
+    long? TotalPages,
+    long? MonoPages,
+    long? ColorPages,
+    string ConsumableSummary,
+    IReadOnlyList<PrinterConsumableDto> Consumables,
+    DateTime? LastCapturedAtUtc,
+    DateTime LastIngestedAtUtc);

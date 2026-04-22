@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.JSInterop;
+using web.Models;
 using web.Services;
 using Xunit;
 
@@ -24,6 +25,40 @@ public class CatEtApiClientComputerSearchTests
 
         Assert.NotNull(handler.LastRequest);
         Assert.Equal("/api/catet/computers?page=1&pageSize=25&search=lv426&visibility=all", handler.LastRequest!.RequestUri!.PathAndQuery);
+    }
+
+    [Fact]
+    public async Task GetPrintersAsync_usesPrinterTelemetryEndpoint()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("[]", Encoding.UTF8, "application/json")
+        });
+
+        var client = CreateClient(handler);
+
+        _ = await client.GetPrintersAsync();
+
+        Assert.NotNull(handler.LastRequest);
+        Assert.Equal("/api/printers", handler.LastRequest!.RequestUri!.PathAndQuery);
+    }
+
+    [Fact]
+    public async Task SavePrinterTelemetryIntegrationSettingsAsync_usesPrinterTelemetrySettingsEndpoint()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}", Encoding.UTF8, "application/json")
+        });
+
+        var client = CreateClient(handler);
+
+        var result = await client.SavePrinterTelemetryIntegrationSettingsAsync(new UpdatePrinterTelemetryIntegrationConfigRequest("collector-secret"));
+
+        Assert.True(result.Success);
+        Assert.NotNull(handler.LastRequest);
+        Assert.Equal(HttpMethod.Put, handler.LastRequest!.Method);
+        Assert.Equal("/api/integrations/settings/printer-telemetry", handler.LastRequest.RequestUri!.PathAndQuery);
     }
 
     private static CatEtApiClient CreateClient(HttpMessageHandler handler)

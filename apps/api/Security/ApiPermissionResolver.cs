@@ -45,6 +45,16 @@ public static class ApiPermissionResolver
             return [AppPermissions.Integrations];
         }
 
+        if (path.StartsWith("/api/printers/telemetry", StringComparison.OrdinalIgnoreCase) && HttpMethods.IsPost(method))
+        {
+            return null;
+        }
+
+        if (path.StartsWith("/api/printers", StringComparison.OrdinalIgnoreCase))
+        {
+            return [AppPermissions.Printers];
+        }
+
         if (path.StartsWith("/api/allowances/cell-phone", StringComparison.OrdinalIgnoreCase))
         {
             return [AppPermissions.CellPhoneAllowance];

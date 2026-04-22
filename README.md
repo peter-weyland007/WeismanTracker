@@ -49,6 +49,14 @@ WeismanTracker is a new .NET 11 Blazor application scaffolded with:
   - People: sort by name/email/created, filter with/without email
   - Computers: sort by hostname/asset/assignee/created, filter assigned/unassigned
 
+### 2026-04-21 — Printer telemetry ingest
+
+- Added `POST /api/printers/telemetry` for collector pushes.
+- Added `GET /api/printers` for printer telemetry display in the web app.
+- Added live `/assets/printers` table for status, toner, usage, and alert visibility.
+- Added collector contract doc: `docs/printer-collector-contract.md`.
+- Added example collector-side POST helper: `scripts/post_printer_telemetry.py`.
+
 ## Build
 
 ```bash
