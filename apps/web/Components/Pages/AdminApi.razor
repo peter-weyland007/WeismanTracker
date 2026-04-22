@@ -1,0 +1,36 @@
+@page "/admin/api"
+@attribute [Authorize(Policy = AppPermissions.Integrations)]
+
+<PageTitle>Admin - API</PageTitle>
+
+<MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Admin - API</MudText>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadFrame">
+            Reload
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.OpenInNew" Href="/admin/api/frame" Target="_blank">
+            Open in New Tab
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-4">
+    This page embeds live Swagger for the currently configured API. If you can see the printer endpoints here and successfully execute them, the running app instance exposes those routes.
+</MudAlert>
+
+<MudPaper Class="pa-0" Elevation="1">
+    <iframe src="@_frameUrl"
+            title="WeismanTracker API Swagger"
+            style="width: 100%; height: 78vh; border: 0; background: white;"
+            loading="eager"></iframe>
+</MudPaper>
+
+@code {
+    private string _frameUrl = "/admin/api/frame";
+
+    private void ReloadFrame()
+    {
+        _frameUrl = $"/admin/api/frame?tick={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+    }
+}

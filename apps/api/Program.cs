@@ -63,10 +63,8 @@ var app = builder.Build();
 var serialRegex = new Regex("^[A-Z]{2}[0-9]{6}$", RegexOptions.Compiled);
 var activationRegex = new Regex("^[0-9a-f]{4}(-[0-9a-f]{4}){7}$", RegexOptions.Compiled);
 
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+app.MapOpenApi("/openapi/{documentName}.json")
+    .RequireAuthorization(AppPermissions.Integrations);
 
 Directory.CreateDirectory(Path.Combine(app.Environment.ContentRootPath, "data"));
 

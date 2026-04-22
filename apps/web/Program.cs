@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Components.Authorization;
+using System.Net.Http.Headers;
 using MudBlazor.Services;
 using web.Components;
 using web.Services;
+using web.Swagger;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,6 +57,31 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+
+app.MapGet(EmbeddedSwaggerSupport.OpenApiProxyPath, async (HttpContext context, IHttpClientFactory httpClientFactory) =>
+{
+    var client = httpClientFactory.CreateClient("WeismanApi");
+    using var request = new HttpRequestMessage(HttpMethod.Get, "/openapi/v1.json");
+
+    if (context.Request.Cookies.TryGetValue("auth.token", out var token) && !string.IsNullOrWhiteSpace(token))
+    {
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Uri.UnescapeDataString(token));
+    }
+
+    using var response = await client.SendAsync(request, context.RequestAborted);
+    var content = await response.Content.ReadAsStringAsync(context.RequestAborted);
+    return Results.Content(
+        content,
+        response.Content.Headers.ContentType?.ToString() ?? "application/json",
+        statusCode: (int)response.StatusCode);
+})
+.RequireAuthorization(AppPermissions.Integrations);
+
+app.MapGet(EmbeddedSwaggerSupport.FramePath, () =>
+    Results.Content(
+        EmbeddedSwaggerSupport.BuildFrameHtml(EmbeddedSwaggerSupport.OpenApiProxyPath, "WeismanTracker API Docs"),
+        "text/html"))
+.RequireAuthorization(AppPermissions.Integrations);
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
