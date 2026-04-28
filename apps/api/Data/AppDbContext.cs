@@ -29,6 +29,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasIndex(p => p.Email)
             .IsUnique();
 
+        modelBuilder.Entity<TrackedPerson>()
+            .Property(p => p.Status)
+            .HasDefaultValue(PersonStatusOption.Unknown);
+
         modelBuilder.Entity<TrackedComputer>()
             .HasIndex(c => c.AssetTag)
             .IsUnique();

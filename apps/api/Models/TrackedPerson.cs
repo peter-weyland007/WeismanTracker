@@ -17,6 +17,8 @@ public class TrackedPerson
 
     public int? PayrollGroup { get; set; }
 
+    public int Status { get; set; } = PersonStatusOption.Unknown;
+
     [MaxLength(50)]
     public string? MobilePhone { get; set; }
 

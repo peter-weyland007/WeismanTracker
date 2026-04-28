@@ -146,6 +146,9 @@
 </MudPaper>
 
 @code {
+    private const int PersonStatusUnknown = 0;
+    private const int PersonStatusActive = 3;
+
     private MudTable<CellPhoneAllowanceDto>? _table;
     private bool _isLoading = true;
     private bool _isSaving;
@@ -239,7 +242,7 @@
     protected override async Task OnInitializedAsync()
     {
         _people = (await Api.GetPeopleAsync())
-            .Where(x => !x.IsServiceAccount)
+            .Where(x => !x.IsServiceAccount && (x.Status == PersonStatusActive || x.Status == PersonStatusUnknown))
             .OrderBy(x => x.FullName)
             .ToList();
     }
@@ -331,12 +334,12 @@
 
         if (!string.IsNullOrWhiteSpace(person.EmployeeNumber))
         {
-            return $"{person.FullName} ({person.EmployeeNumber})";
+            return $"{person.FullName} ({person.EmployeeNumber}) - {person.StatusLabel}";
         }
 
         return string.IsNullOrWhiteSpace(person.Email)
-            ? person.FullName
-            : $"{person.FullName} ({person.Email})";
+            ? $"{person.FullName} - {person.StatusLabel}"
+            : $"{person.FullName} ({person.Email}) - {person.StatusLabel}";
     }
 
     private string FormatAllowancePerson(CellPhoneAllowanceDto allowance)

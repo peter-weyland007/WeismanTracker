@@ -26,6 +26,7 @@
     <Compile Include="../../apps/api/Integrations/NinjaDevicePayloadParser.cs" Link="Source/NinjaDevicePayloadParser.cs" />
     <Compile Include="../../apps/api/Models/AppUser.cs" Link="Source/AppUser.cs" />
     <Compile Include="../../apps/api/Models/PayrollGroupOption.cs" Link="Source/PayrollGroupOption.cs" />
+    <Compile Include="../../apps/api/Models/PersonStatusOption.cs" Link="Source/PersonStatusOption.cs" />
     <Compile Include="../../apps/api/Models/UserRole.cs" Link="Source/UserRole.cs" />
     <Compile Include="../../apps/api/Security/AppPermissions.cs" Link="Source/AppPermissions.cs" />
     <Compile Include="../../apps/api/Security/AppUserPermissionExtensions.cs" Link="Source/AppUserPermissionExtensions.cs" />

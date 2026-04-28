@@ -16,11 +16,31 @@ public sealed class PayrollGroupAndCellPhoneAllowanceExportTests
     }
 
     [Theory]
+    [InlineData(3, "Active")]
+    [InlineData(2, "Inactive")]
+    [InlineData(1, "FMLA")]
+    [InlineData(0, "Unknown")]
+    public void PersonStatusOption_returns_expected_display_name(int value, string expected)
+    {
+        Assert.Equal(expected, PersonStatusOption.GetDisplayName(value));
+    }
+
+    [Theory]
     [InlineData(2)]
     [InlineData(3)]
     public void PayrollGroupOption_accepts_supported_values(int value)
     {
         Assert.True(PayrollGroupOption.IsValid(value));
+    }
+
+    [Theory]
+    [InlineData(PersonStatusOption.Active)]
+    [InlineData(PersonStatusOption.Inactive)]
+    [InlineData(PersonStatusOption.Fmla)]
+    [InlineData(PersonStatusOption.Unknown)]
+    public void PersonStatusOption_accepts_supported_values(int value)
+    {
+        Assert.True(PersonStatusOption.IsValid(value));
     }
 
     [Theory]
@@ -31,6 +51,25 @@ public sealed class PayrollGroupAndCellPhoneAllowanceExportTests
     public void PayrollGroupOption_rejects_unsupported_values(int? value)
     {
         Assert.False(PayrollGroupOption.IsValid(value));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(-1)]
+    [InlineData(4)]
+    public void PersonStatusOption_rejects_unsupported_values(int? value)
+    {
+        Assert.False(PersonStatusOption.IsValid(value));
+    }
+
+    [Theory]
+    [InlineData(PersonStatusOption.Active, true)]
+    [InlineData(PersonStatusOption.Unknown, true)]
+    [InlineData(PersonStatusOption.Inactive, false)]
+    [InlineData(PersonStatusOption.Fmla, false)]
+    public void PersonStatusOption_reports_cell_phone_allowance_eligibility(int value, bool expected)
+    {
+        Assert.Equal(expected, PersonStatusOption.IsEligibleForCellPhoneAllowance(value));
     }
 
     [Fact]

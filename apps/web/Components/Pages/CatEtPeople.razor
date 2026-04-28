@@ -37,6 +37,14 @@
             </MudSelect>
         </MudItem>
         <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="int" @bind-Value="PersonFormStatus" Label="Status" Variant="Variant.Outlined" Required="true">
+                <MudSelectItem T="int" Value="0">Unknown</MudSelectItem>
+                <MudSelectItem T="int" Value="3">Active</MudSelectItem>
+                <MudSelectItem T="int" Value="2">Inactive</MudSelectItem>
+                <MudSelectItem T="int" Value="1">FMLA</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
             <MudTextField @bind-Value="PersonFormMobilePhone" Label="Mobile phone" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="2">
@@ -86,6 +94,10 @@
                 <MudSelectItem Value='@("withoutEmail")'>Without email</MudSelectItem>
                 <MudSelectItem Value='@("human")'>Human users only</MudSelectItem>
                 <MudSelectItem Value='@("service")'>Service accounts only</MudSelectItem>
+                <MudSelectItem Value='@("active")'>Active only</MudSelectItem>
+                <MudSelectItem Value='@("inactive")'>Inactive only</MudSelectItem>
+                <MudSelectItem Value='@("fmla")'>FMLA only</MudSelectItem>
+                <MudSelectItem Value='@("unknown")'>Unknown only</MudSelectItem>
             </MudSelect>
         </MudItem>
     </MudGrid>
@@ -102,6 +114,7 @@
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="email">Email</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="employeeNumber">Employee #</MudTableSortLabel></MudTh>
             <MudTh>Payroll Group</MudTh>
+            <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="status">Status</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="serviceAccount">Type</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="mobilePhone">Mobile</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel T="TrackedPersonDto" SortLabel="businessPhone">Business</MudTableSortLabel></MudTh>
@@ -113,6 +126,7 @@
             <MudTd>@(string.IsNullOrWhiteSpace(context.Email) ? "-" : context.Email)</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.EmployeeNumber) ? "-" : context.EmployeeNumber)</MudTd>
             <MudTd>@(string.IsNullOrWhiteSpace(context.PayrollGroupLabel) ? "-" : context.PayrollGroupLabel)</MudTd>
+            <MudTd>@context.StatusLabel</MudTd>
             <MudTd>
                 @if (context.IsServiceAccount)
                 {
@@ -155,6 +169,7 @@
     private string _newEmail = string.Empty;
     private string _newEmployeeNumber = string.Empty;
     private int? _newPayrollGroup;
+    private int _newStatus;
     private string _newMobilePhone = string.Empty;
     private string _newBusinessPhone = string.Empty;
     private bool _newIsServiceAccount;
@@ -164,6 +179,7 @@
     private string _editEmail = string.Empty;
     private string _editEmployeeNumber = string.Empty;
     private int? _editPayrollGroup;
+    private int _editStatus;
     private string _editMobilePhone = string.Empty;
     private string _editBusinessPhone = string.Empty;
     private bool _editIsServiceAccount;
@@ -228,6 +244,22 @@
             else
             {
                 _editPayrollGroup = value;
+            }
+        }
+    }
+
+    private int PersonFormStatus
+    {
+        get => _editingPersonId is null ? _newStatus : _editStatus;
+        set
+        {
+            if (_editingPersonId is null)
+            {
+                _newStatus = value;
+            }
+            else
+            {
+                _editStatus = value;
             }
         }
     }
@@ -350,6 +382,7 @@
             string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail.Trim(),
             string.IsNullOrWhiteSpace(_newEmployeeNumber) ? null : _newEmployeeNumber.Trim(),
             _newPayrollGroup,
+            _newStatus,
             string.IsNullOrWhiteSpace(_newMobilePhone) ? null : _newMobilePhone.Trim(),
             string.IsNullOrWhiteSpace(_newBusinessPhone) ? null : _newBusinessPhone.Trim(),
             _newIsServiceAccount));
@@ -365,6 +398,7 @@
         _newEmail = string.Empty;
         _newEmployeeNumber = string.Empty;
         _newPayrollGroup = null;
+        _newStatus = 0;
         _newMobilePhone = string.Empty;
         _newBusinessPhone = string.Empty;
         _newIsServiceAccount = false;
@@ -379,6 +413,7 @@
         _editEmail = person.Email ?? string.Empty;
         _editEmployeeNumber = person.EmployeeNumber ?? string.Empty;
         _editPayrollGroup = person.PayrollGroup;
+        _editStatus = person.Status;
         _editMobilePhone = person.MobilePhone ?? string.Empty;
         _editBusinessPhone = person.BusinessPhone ?? string.Empty;
         _editIsServiceAccount = person.IsServiceAccount;
@@ -391,6 +426,7 @@
         _editEmail = string.Empty;
         _editEmployeeNumber = string.Empty;
         _editPayrollGroup = null;
+        _editStatus = 0;
         _editMobilePhone = string.Empty;
         _editBusinessPhone = string.Empty;
         _editIsServiceAccount = false;
@@ -410,6 +446,7 @@
             string.IsNullOrWhiteSpace(_editEmail) ? null : _editEmail.Trim(),
             string.IsNullOrWhiteSpace(_editEmployeeNumber) ? null : _editEmployeeNumber.Trim(),
             _editPayrollGroup,
+            _editStatus,
             string.IsNullOrWhiteSpace(_editMobilePhone) ? null : _editMobilePhone.Trim(),
             string.IsNullOrWhiteSpace(_editBusinessPhone) ? null : _editBusinessPhone.Trim(),
             _editIsServiceAccount));

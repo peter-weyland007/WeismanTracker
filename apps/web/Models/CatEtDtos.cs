@@ -6,8 +6,8 @@ public record ChangeOwnPasswordRequest(string CurrentPassword, string NewPasswor
 public record UserAccessDto(int Id, string Username, string Role, bool IsEnabled, IReadOnlyList<string> Permissions, DateTime CreatedAtUtc);
 public record CreateOrUpdateUserRequest(string Username, string? Password, string Role, bool IsEnabled, IReadOnlyList<string>? Permissions);
 
-public record TrackedPersonDto(int Id, string FullName, string? Email, string? EmployeeNumber, int? PayrollGroup, string? PayrollGroupLabel, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount, DateTime CreatedAtUtc);
-public record CreateTrackedPersonRequest(string FullName, string? Email, string? EmployeeNumber, int? PayrollGroup, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount);
+public record TrackedPersonDto(int Id, string FullName, string? Email, string? EmployeeNumber, int? PayrollGroup, string? PayrollGroupLabel, int Status, string StatusLabel, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount, DateTime CreatedAtUtc);
+public record CreateTrackedPersonRequest(string FullName, string? Email, string? EmployeeNumber, int? PayrollGroup, int Status, string? MobilePhone, string? BusinessPhone, bool IsServiceAccount);
 
 public record CellPhoneAllowanceDto(
     int Id,
