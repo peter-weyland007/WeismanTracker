@@ -664,6 +664,7 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         {
             FullName = fullName.Length > 120 ? fullName[..120] : fullName,
             Email = normalizedEmail,
+            Status = PersonStatusOption.GetImportedMicrosoftStatus(user.AccountEnabled),
             MobilePhone = string.IsNullOrWhiteSpace(user.MobilePhone) ? null : user.MobilePhone.Trim(),
             BusinessPhone = string.IsNullOrWhiteSpace(user.BusinessPhone) ? null : user.BusinessPhone.Trim()
         };
@@ -705,6 +706,12 @@ public sealed class ResourceSyncBackgroundService : BackgroundService
         if (!string.IsNullOrWhiteSpace(user.BusinessPhone) && !string.Equals(person.BusinessPhone, user.BusinessPhone.Trim(), StringComparison.Ordinal))
         {
             person.BusinessPhone = user.BusinessPhone.Trim();
+            changed = true;
+        }
+
+        if (user.AccountEnabled is false && person.Status != PersonStatusOption.Inactive)
+        {
+            person.Status = PersonStatusOption.Inactive;
             changed = true;
         }
 

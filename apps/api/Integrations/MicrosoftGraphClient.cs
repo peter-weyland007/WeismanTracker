@@ -50,7 +50,7 @@ public sealed class MicrosoftGraphClient : IMicrosoftGraphClient
             return [];
         }
 
-        var endpoint = $"{options.GraphBaseUrl.TrimEnd('/')}/v1.0/users?$select=id,displayName,userPrincipalName,mail,mobilePhone,businessPhones&$top={Math.Max(1, options.PageSize)}";
+        var endpoint = $"{options.GraphBaseUrl.TrimEnd('/')}/v1.0/users?$select=id,displayName,userPrincipalName,mail,mobilePhone,businessPhones,accountEnabled&$top={Math.Max(1, options.PageSize)}";
         var rows = await GetPagedGraphRowsAsync(endpoint, token, cancellationToken);
 
         return rows
@@ -60,7 +60,8 @@ public sealed class MicrosoftGraphClient : IMicrosoftGraphClient
                 Mail: ReadString(x, "mail"),
                 DisplayName: ReadString(x, "displayName"),
                 MobilePhone: ReadString(x, "mobilePhone"),
-                BusinessPhone: ReadFirstStringFromArray(x, "businessPhones")))
+                BusinessPhone: ReadFirstStringFromArray(x, "businessPhones"),
+                AccountEnabled: ReadBool(x, "accountEnabled")))
             .Where(x => !string.IsNullOrWhiteSpace(x.ExternalId))
             .ToList();
     }
@@ -429,5 +430,20 @@ public sealed class MicrosoftGraphClient : IMicrosoftGraphClient
         }
 
         return null;
+    }
+
+    private static bool? ReadBool(JsonElement obj, string name)
+    {
+        if (obj.ValueKind != JsonValueKind.Object || !obj.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
     }
 }

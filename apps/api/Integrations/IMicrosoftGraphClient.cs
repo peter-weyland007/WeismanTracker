@@ -14,7 +14,8 @@ public sealed record GraphUserDto(
     string? Mail,
     string? DisplayName,
     string? MobilePhone,
-    string? BusinessPhone);
+    string? BusinessPhone,
+    bool? AccountEnabled);
 
 public sealed record GraphDeviceDto(
     string ExternalId,

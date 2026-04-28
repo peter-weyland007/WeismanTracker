@@ -20,6 +20,15 @@ public static class PersonStatusOption
         return value is Unknown or Active;
     }
 
+    public static int GetImportedMicrosoftStatus(bool? accountEnabled)
+    {
+        return accountEnabled switch
+        {
+            false => Inactive,
+            _ => Unknown
+        };
+    }
+
     public static string GetDisplayName(int value)
     {
         return value switch

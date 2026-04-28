@@ -72,6 +72,20 @@ public sealed class PayrollGroupAndCellPhoneAllowanceExportTests
         Assert.Equal(expected, PersonStatusOption.IsEligibleForCellPhoneAllowance(value));
     }
 
+    [Theory]
+    [InlineData(true, PersonStatusOption.Unknown)]
+    [InlineData(false, PersonStatusOption.Inactive)]
+    public void PersonStatusOption_maps_microsoft_account_enabled_to_import_status(bool accountEnabled, int expected)
+    {
+        Assert.Equal(expected, PersonStatusOption.GetImportedMicrosoftStatus(accountEnabled));
+    }
+
+    [Fact]
+    public void PersonStatusOption_maps_unknown_microsoft_account_state_to_unknown_import_status()
+    {
+        Assert.Equal(PersonStatusOption.Unknown, PersonStatusOption.GetImportedMicrosoftStatus(null));
+    }
+
     [Fact]
     public void BuildWorkbook_includes_required_export_columns_and_values()
     {
